@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -18,7 +20,6 @@ class BaseDataset(Dataset):
         self,
         split_file: str,
         split: str,
-        dataset: str,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -36,9 +37,9 @@ class BaseDataset(Dataset):
             raise ValueError(f"cannot find split file at {split_file}")
 
         self.split_file = split_file
-        self.dataset_folder = f'{split_file.split("_splits")[0]}/{dataset}'
+        self.base_folder = f"{os.path.split(self.split_file)[0]}/"
+        self.dataset_folder = f"{os.path.split(self.split_file)[0]}/raw"
         self.split = split
-        self.dataset = dataset
 
         if not utils.check_dir_exists(self.dataset_folder):
             raise ValueError(f"cannot find dataset at {self.dataset_folder}")
