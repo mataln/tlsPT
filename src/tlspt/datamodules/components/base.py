@@ -20,6 +20,8 @@ class BaseDataset(Dataset):
         self,
         split_file: str,
         split: str,
+        dataset: str,
+        voxel_format: str,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -33,9 +35,13 @@ class BaseDataset(Dataset):
                 f"invalid split '{split}', must be one of 'train', 'test' or 'val'"
             )
 
+        if voxel_format not in ["npy"]:
+            raise ValueError(f"unsupported voxel format {voxel_format}")
+
         if not utils.check_file_exists(split_file):
             raise ValueError(f"cannot find split file at {split_file}")
 
+        self.voxel_format = voxel_format
         self.split_file = split_file
         self.base_folder = f"{os.path.split(self.split_file)[0]}/"
         self.dataset_folder = f"{os.path.split(self.split_file)[0]}/raw"
@@ -45,14 +51,17 @@ class BaseDataset(Dataset):
             raise ValueError(f"cannot find dataset at {self.dataset_folder}")
 
         logger.info(f"{self}: reading splits from {split_file}")
-        self.splits = pd.read_csv(split_file, index_col="identifier")
+        self.splits = pd.read_csv(
+            split_file, index_col="identifier", dtype={"identifier": str, "split": str}
+        )
         self.splits = self.splits[self.splits.split == self.split].copy()
 
         if len(self.splits) == 0:
             raise ValueError(f"{self}: no splits for '{split}' found in {split_file}")
 
         # makes file list with files actually found in folder
-        expected_files = [f"{i}.{self.tile_format}" for i in self.splits.index]
+        expected_files = [f"{i}.{self.voxel_format}" for i in self.splits.index]
+
         logger.info(
             f"{self}: looking for {len(expected_files)} files in {self.dataset_folder}"
         )
@@ -62,14 +71,14 @@ class BaseDataset(Dataset):
 
         self.check_discrepancies_between_expected_files_and_folder_files(expected_files)
 
-        self.tileids = [i.split(".")[0] for i in self.files]
+        self.voxelids = [i.split(".")[0] for i in self.files]
 
         self.files = np.array(self.files, dtype=np.string_)
-        self.tileids = np.array(self.tileids, dtype=np.string_)
+        self.voxelids = np.array(self.voxelids, dtype=np.string_)
 
         if len(self.files) > 0:
             logger.info(
-                f"{self}: found {len(self.files)} tiles for '{self.split}' out of {len(expected_files)} tiles defined in split file"
+                f"{self}: found {len(self.files)} voxels for '{self.split}' out of {len(expected_files)} voxels defined in split file"
             )
         else:
             raise ValueError(
@@ -92,12 +101,12 @@ class BaseDataset(Dataset):
         """
         return [i.decode("utf-8") for i in self.files]
 
-    def get_tileids(self):
+    def get_voxelids(self):
         """
-        returns the decoded set of ids of the tiles delivered by this dataset
+        returns the decoded set of ids of the voxels delivered by this dataset
         """
         return [
-            i.decode("utf-8") if isinstance(i, np.bytes_) else i for i in self.tileids
+            i.decode("utf-8") if isinstance(i, np.bytes_) else i for i in self.voxelids
         ]
 
     def __repr__(self):

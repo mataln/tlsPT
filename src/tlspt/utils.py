@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import pickle
 
@@ -20,12 +21,14 @@ class TlsNormalizer:
         self.dataset = dataset
         self.params = params
         self.n_samples = n_samples
-        self.out_dtype = (out_dtype,)
+        self.out_dtype = out_dtype
         self.force_compute = force_compute
 
-        self.hash = get_hash(str(params))
+        self.hash = get_hash(str(params) + str(n_samples))
 
-        self.stats_file = f"{self.dataset.base_folder}/stats/stats_{self.hash}.pkl"
+        self.stats_file = os.path.join(
+            self.dataset.base_folder, f"stats/stats_{self.hash}.pkl"
+        )
         logger.info(f"Creating directory for stats_file {self.stats_file}")
         os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
 
@@ -39,6 +42,9 @@ class TlsNormalizer:
             logger.info(
                 f"{self.dataset.__class__.__name__}.{self.params}.{self.dataset.split}.{self.hash}: computing normalizer"
             )
+
+            x_sum = None
+            xsq_sum = None
 
             n = 0
             failed_files = 0
@@ -76,9 +82,13 @@ class TlsNormalizer:
             f"for dataset {self.dataset.__class__.__name__}.{self.params}.{self.dataset.split}.{self.hash}"
         )
 
-        with pickle.load(open(self.stats_file, "rb")) as f:
-            self.mean = f["mean"]
-            self.std = f["std"]
+        with open(self.stats_file, "rb") as f:
+            k = pickle.load(f)
+            self.mean = k["mean"]
+            self.std = k["std"]
+
+        logger.info(f"mean: {self.mean}")
+        logger.info(f"std: {self.std}")
 
         self.mean = self.mean.astype(self.out_dtype)
         self.std = self.std.astype(self.out_dtype)
@@ -89,7 +99,8 @@ class TlsNormalizer:
         min_vals = np.min(x[:, :-1], axis=0)
         max_vals = np.max(x[:, :-1], axis=0)
 
-        x[:, :-1] = (x[:, :-1] - min_vals) / (max_vals - min_vals)  # Scaling
+        x[:, :-1] = (x[:, :-1] - min_vals) / (max_vals - min_vals)  # Scaling to [0, 1]
+        x[:, :-1] = 2 * x[:, :-1] - 1  # Scaling to [-1, 1]
 
         return x.astype(self.out_dtype)
 
@@ -113,3 +124,15 @@ def list_all_files(dir: str) -> list:
     returns a list of all files in a directory, works for local directories and directories in a bucket
     """
     return os.listdir(dir)
+
+
+def get_hash(s: str):
+    """
+    s: a string
+    returns a hash string for s
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    k = int(hashlib.sha256(s.encode("utf-8")).hexdigest(), 16) % 10**15
+    k = str(hex(k))[2:].zfill(13)
+    return k
