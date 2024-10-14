@@ -4,3 +4,4 @@ dependencies:
   - python=3.10
   - h5py
   - cchardet
+  - numpy<2.0.0

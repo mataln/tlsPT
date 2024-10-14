@@ -5,7 +5,7 @@ import numpy as np
 from tlspt import utils
 
 
-def load_numpy(file_path: str, out_dtype: np.dtype = np.float32):
+def load_numpy(file_path: str, out_dtype: np.dtype = np.float32, allow_pickle: bool = False) -> np.ndarray:
     """
     Loads a numpy file from disk
     """
@@ -15,6 +15,6 @@ def load_numpy(file_path: str, out_dtype: np.dtype = np.float32):
     if not utils.check_file_exists(file_path):
         raise ValueError(f"cannot find file at {file_path}")
 
-    arr = np.load(file_path)
+    arr = np.load(file_path, allow_pickle=allow_pickle)
     arr = arr.astype(out_dtype)
     return arr

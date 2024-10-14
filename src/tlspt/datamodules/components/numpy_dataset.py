@@ -16,6 +16,7 @@ class NumpyDataset(base.BaseDataset):
         split_file: str,
         split: str,
         num_channels: int = 4,  # Note - includes labels so 4 for 3d data w/o reflectance etc.
+        has_labels: bool = False,
         normalize: bool = True,
         transform=None,
     ):
@@ -26,8 +27,8 @@ class NumpyDataset(base.BaseDataset):
         split: one of 'train', 'test', 'val'
         dataset: name of the dataset
         """
-        if num_channels < 4:
-            raise ValueError("num_channels must be at least 4")
+        if num_channels < 3 + int(has_labels):
+            raise ValueError(f"num_channels must be at least {3 + int(has_labels)} with labels: {has_labels}")
 
         self.num_channels = num_channels
         self.dataset = f"numpy_{num_channels}ch"
@@ -42,12 +43,13 @@ class NumpyDataset(base.BaseDataset):
             self,
             params={
                 "num_channels": num_channels,
+                "has_labels": has_labels
             },
         )
 
-    def prepare_data(self):
+    def prepare_data(self, force_compute=False):
         if self.normalize:
-            self.normalizer.prepare_data()
+            self.normalizer.prepare_data(force_compute=force_compute)
 
     def load_item(self, idx):
         """
@@ -74,6 +76,8 @@ class NumpyDataset(base.BaseDataset):
         """
         arr = self.load_item(idx)
 
+        if self.normalizer.mean is None:
+            raise ValueError("Normalizer not computed. Run prepare_data first.")
         if self.normalize:
             arr = self.normalizer.normalize(arr)
 

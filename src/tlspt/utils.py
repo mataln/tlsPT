@@ -16,15 +16,16 @@ class TlsNormalizer:
         params,
         n_samples=1000,  # Note - this is number of files, not number of points
         out_dtype=np.float32,
-        force_compute=False,
     ):
         self.dataset = dataset
         self.params = params
         self.n_samples = n_samples
         self.out_dtype = out_dtype
-        self.force_compute = force_compute
 
-        self.hash = get_hash(str(params) + str(n_samples))
+        self.num_channels = params["num_channels"]
+        self.has_labels = params["has_labels"]
+
+        self.hash = get_hash(str(params) + str(n_samples) + str(out_dtype))
 
         self.stats_file = os.path.join(
             self.dataset.base_folder, f"stats/stats_{self.hash}.pkl"
@@ -32,8 +33,11 @@ class TlsNormalizer:
         logger.info(f"Creating directory for stats_file {self.stats_file}")
         os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
 
-    def prepare_data(self):
-        if not os.path.isfile(self.stats_file) or self.force_compute:
+        self.mean = None
+        self.std = None
+
+    def prepare_data(self, force_compute=False):
+        if not os.path.isfile(self.stats_file) or force_compute:
             if self.dataset.split != "train":
                 raise ValueError(
                     "Normalizer can only be computed on the training set. Run prepare_data on the training set first."
@@ -90,17 +94,28 @@ class TlsNormalizer:
         logger.info(f"mean: {self.mean}")
         logger.info(f"std: {self.std}")
 
+        num_remaining_channels = min(self.num_channels - 3 - int(self.has_labels), 0)
+
         self.mean = self.mean.astype(self.out_dtype)
         self.std = self.std.astype(self.out_dtype)
 
-    def normalize(self, x):
-        # Placeholder
-        # Currently normalizes all columns (except last) by scaling rather than z score
-        min_vals = np.min(x[:, :-1], axis=0)
-        max_vals = np.max(x[:, :-1], axis=0)
+        logger.info(f"Dataset has {self.num_channels} channels, of which 3 are spatial, {num_remaining_channels} are non-spatial, and {int(self.has_labels)} are labels")
+        logger.info(f"3 channels will be zero centered and scaled to [-1,1], {num_remaining_channels} channels will be normalized with mean and std")
 
-        x[:, :-1] = (x[:, :-1] - min_vals) / (max_vals - min_vals)  # Scaling to [0, 1]
-        x[:, :-1] = 2 * x[:, :-1] - 1  # Scaling to [-1, 1]
+    def normalize(self, x):
+        # Zero mean and [-1,1] for the first 3 channels
+        x[:, :3] = (x[:, :3] - self.mean) #Zero center
+        max_val = np.abs(x[:, :3]).max() 
+        x[:, :3] /= max_val
+
+        #Other (non-spatial) channels are normalized with mean and std
+        num_remaining_channels = x.shape[1] - 3
+
+        if self.has_labels:
+            num_remaining_channels -= 1 #Don't normalise the labels
+
+        if num_remaining_channels > 0:
+            x[:, 3:3 + num_remaining_channels] = (x[:, 3:3 + num_remaining_channels] - self.mean[3:3 + num_remaining_channels]) / self.std[3:3 + num_remaining_channels]
 
         return x.astype(self.out_dtype)
 

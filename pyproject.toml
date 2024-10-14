@@ -106,6 +106,7 @@ dependencies = [ # Optional
   "torch==2.2.1",
   "torchvision==0.17.1",
   "lightning==2.0.6",
+  "numpy<2.0.0",
   "progressbar2",
   "wandb",
   "loguru",
