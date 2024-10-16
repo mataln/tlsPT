@@ -6,13 +6,36 @@ wandb:
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
 
-  split_file: /home/matt/work/tlspt/data/dummy_data/splits.csv
+  train_dataset:
+    target_class:  tlspt.datamodules.components.numpy_dataset.NumpyDataset
+    kwargs:
+      split: train
+      split_file: /home/matt/work/tlsPT/data/dummy_data/splits.csv
+      num_channels: 3
+      has_labels: False
+      normalize: True
+      transform: null
 
-  dataset: tlspt.datamodules.components.numpy_dataset.NumpyDataset
-  dataset_kwargs:
-    num_channels: 3
-    has_labels: False
-    normalize: True
-    transform: None
+  val_dataset:
+    target_class:  tlspt.datamodules.components.numpy_dataset.NumpyDataset
+    kwargs:
+      split: val
+      split_file: /home/matt/work/tlsPT/data/dummy_data/splits.csv
+      num_channels: 3
+      has_labels: False
+      normalize: True
+      transform: null
+
+  test_dataset:
+    target_class:  tlspt.datamodules.components.numpy_dataset.NumpyDataset
+    kwargs:
+      split: test
+      split_file: /home/matt/work/tlsPT/data/dummy_data/splits.csv
+      num_channels: 3
+      has_labels: False
+      normalize: True
+      transform: null
+
+max_epochs: 5
 
 experiment_name: test
