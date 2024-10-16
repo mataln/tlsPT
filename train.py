@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 
 import hydra
 import lightning.pytorch as pl
@@ -17,7 +18,7 @@ from omegaconf import DictConfig
 
 
 @hydra.main(
-    version_base="1.0",
+    version_base="1.1",
     config_path="configs/dev/toy_model_data/",
     config_name="train.yaml",
 )
@@ -28,7 +29,7 @@ def main(config: DictConfig):
         seed = 0
 
     logger.info(f"Training model with seed {seed}")
-    logger.infof("Building dataset with seed {seed}")
+    logger.info("Building dataset with seed {seed}")
 
     random.seed(seed)
     np.random.seed(seed)
@@ -62,12 +63,15 @@ def main(config: DictConfig):
 
     hydra.utils.instantiate(config.dataloader)
 
-    config.get("num_nodes", 1)
-    config.get("strategy", "ddp")
-    config.get("devices", "auto")
+    num_nodes = config.get("num_nodes", 1)
+    strategy = config.get("strategy", "ddp")
+    devices = config.get("devices", "auto")
     limit_train_batches = config.get("limit_train_batches", 1.0)
     limit_test_batches = config.get("limit_test_batches", 1.0)
     limit_val_batches = config.get("limit_val_batches", 1.0)
+    log_every_n_steps = config.get("log_every_n_steps", 1)
+    check_val_every_n_epoch = config.get("check_val_every_n_epoch", 1)
+    num_sanity_val_steps = config.get("num_sanity_val_steps", 0)
 
     wandb_logger.log_hyperparams(
         {
@@ -78,17 +82,17 @@ def main(config: DictConfig):
     )
 
     trainer = pl.Trainer(
-        num_nodes=config.get("num_nodes", 1),
-        strategy=config.get("strategy", "ddp"),
-        devices=config.get("devices", "auto"),
+        num_nodes=num_nodes,
+        strategy=strategy,
+        devices=devices,
         max_epochs=config.max_epochs,
-        log_every_n_steps=config.get("log_every_n_steps", 1),
+        log_every_n_steps=log_every_n_steps,
         logger=wandb_logger,
-        limit_train_batches=config.get("limit_train_batches", 1.0),
-        limit_test_batches=config.get("limit_test_batches", 1.0),
-        limit_val_batches=config.get("limit_val_batches", 1.0),
-        check_val_every_n_epoch=config.get("check_val_every_n_epoch", 1),
-        num_sanity_val_steps=config.get("num_sanity_val_steps", 0),
+        limit_train_batches=limit_train_batches,
+        limit_test_batches=limit_test_batches,
+        limit_val_batches=limit_val_batches,
+        check_val_every_n_epoch=check_val_every_n_epoch,
+        num_sanity_val_steps=num_sanity_val_steps,
     )
 
 

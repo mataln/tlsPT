@@ -1,0 +1,18 @@
+wandb:
+  project: tlspt_dev
+  entity: mja2106
+  mode: offline
+
+dataloader:
+  _target_: tlspt.datamodules.single_datamodule.SingleDataModule
+
+  split_file: /home/matt/work/tlspt/data/dummy_data/splits.csv
+
+  dataset: tlspt.datamodules.components.numpy_dataset.NumpyDataset
+  dataset_kwargs:
+    num_channels: 3
+    has_labels: False
+    normalize: True
+    transform: None
+
+experiment_name: test
