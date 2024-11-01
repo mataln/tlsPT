@@ -1,26 +1,31 @@
 """
 Modified pytorch3d.io.IO to support multiple features
 """
-from typing import Optional, Union
+from __future__ import annotations
+
+from pathlib import Path
+
 from iopath.common.file_io import PathManager
+from pytorch3d.common.datatypes import Device
 from pytorch3d.io import IO as Pytorch3dIO
+
 from tlspt.io.io import PointcloudPlyFormat
 from tlspt.structures.pointclouds import TLSPointclouds
-from pathlib import Path
-from pytorch3d.common.datatypes import Device
+
 
 class TLSReader(Pytorch3dIO):
-    def __init__(self,
-                include_default_formats: bool =True,
-                path_manager: Optional[PathManager] = None,
-                ) -> None:
+    def __init__(
+        self,
+        include_default_formats: bool = True,
+        path_manager: PathManager | None = None,
+    ) -> None:
         super().__init__()
-        
+
     def register_default_formats(self):
         self.register_pointcloud_format(PointcloudPlyFormat())
 
     def load_pointcloud(
-        self, path: Union[str, Path], device: Device = "cpu", **kwargs
+        self, path: str | Path, device: Device = "cpu", **kwargs
     ) -> TLSPointclouds:
         """
         Attempt to load a point cloud from the given file, using a registered format.
@@ -40,12 +45,12 @@ class TLSReader(Pytorch3dIO):
                 return pointcloud
 
         raise ValueError(f"No point cloud interpreter found to read {path}.")
-    
+
     def save_pointcloud(
         self,
         data: TLSPointclouds,
-        path: Union[str, Path],
-        binary: Optional[bool] = None,
+        path: str | Path,
+        binary: bool | None = None,
         **kwargs,
     ) -> None:
         """

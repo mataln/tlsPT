@@ -99,23 +99,30 @@ class TlsNormalizer:
         self.mean = self.mean.astype(self.out_dtype)
         self.std = self.std.astype(self.out_dtype)
 
-        logger.info(f"Dataset has {self.num_channels} channels, of which 3 are spatial, {num_remaining_channels} are non-spatial, and {int(self.has_labels)} are labels")
-        logger.info(f"3 channels will be zero centered and scaled to [-1,1], {num_remaining_channels} channels will be normalized with mean and std")
+        logger.info(
+            f"Dataset has {self.num_channels} channels, of which 3 are spatial, {num_remaining_channels} are non-spatial, and {int(self.has_labels)} are labels"
+        )
+        logger.info(
+            f"3 channels will be zero centered and scaled to [-1,1], {num_remaining_channels} channels will be normalized with mean and std"
+        )
 
     def normalize(self, x):
         # Zero mean and [-1,1] for the first 3 channels
-        x[:, :3] = (x[:, :3] - self.mean) #Zero center
-        max_val = np.abs(x[:, :3]).max() 
+        x[:, :3] = x[:, :3] - self.mean  # Zero center
+        max_val = np.abs(x[:, :3]).max()
         x[:, :3] /= max_val
 
-        #Other (non-spatial) channels are normalized with mean and std
+        # Other (non-spatial) channels are normalized with mean and std
         num_remaining_channels = x.shape[1] - 3
 
         if self.has_labels:
-            num_remaining_channels -= 1 #Don't normalise the labels
+            num_remaining_channels -= 1  # Don't normalise the labels
 
         if num_remaining_channels > 0:
-            x[:, 3:3 + num_remaining_channels] = (x[:, 3:3 + num_remaining_channels] - self.mean[3:3 + num_remaining_channels]) / self.std[3:3 + num_remaining_channels]
+            x[:, 3 : 3 + num_remaining_channels] = (
+                x[:, 3 : 3 + num_remaining_channels]
+                - self.mean[3 : 3 + num_remaining_channels]
+            ) / self.std[3 : 3 + num_remaining_channels]
 
         return x.astype(self.out_dtype)
 

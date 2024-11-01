@@ -1,18 +1,21 @@
-#Script to generate dummy npy data for development work at office
+# Script to generate dummy npy data for development work at office
 
-#Dummy shapes 
-#Line
-#Plane
-#Cube
-#Quadratic surface
-#Sphere
+# Dummy shapes
+# Line
+# Plane
+# Cube
+# Quadratic surface
+# Sphere
 
-#Add small gaussian noise to all
+from __future__ import annotations
 
-import numpy as np
+# Add small gaussian noise to all
 import argparse
 import os
+
+import numpy as np
 import pandas as pd
+
 
 def random_rotation_matrix(dim):
     """Generates a random rotation matrix in given dimensions."""
@@ -24,15 +27,15 @@ def random_rotation_matrix(dim):
     return Q
 
 
-def generate_line(n, dim, noise): #Specified in polar coordinates
-    theta = np.random.uniform(0, 2*np.pi)
-    phi = np.random.uniform(0, 2*np.pi)
+def generate_line(n, dim, noise):  # Specified in polar coordinates
+    theta = np.random.uniform(0, 2 * np.pi)
+    phi = np.random.uniform(0, 2 * np.pi)
 
     r = np.random.uniform(-1, 1, n)
 
-    x = r*np.sin(phi)*np.cos(theta)
-    y = r*np.sin(phi)*np.sin(theta)
-    z = r*np.cos(phi)
+    x = r * np.sin(phi) * np.cos(theta)
+    y = r * np.sin(phi) * np.sin(theta)
+    z = r * np.cos(phi)
 
     data = np.stack([x, y, z], axis=1)
 
@@ -41,9 +44,12 @@ def generate_line(n, dim, noise): #Specified in polar coordinates
 
     return data
 
-def generate_plane(n, dim, noise): #Use the xy plane then rotate about x axis,z axis and translate
-    theta = np.random.uniform(0, 2*np.pi)
-    phi = np.random.uniform(0, 2*np.pi)
+
+def generate_plane(
+    n, dim, noise
+):  # Use the xy plane then rotate about x axis,z axis and translate
+    theta = np.random.uniform(0, 2 * np.pi)
+    phi = np.random.uniform(0, 2 * np.pi)
 
     x = np.random.uniform(-1, 1, n)
     y = np.random.uniform(-1, 1, n)
@@ -54,26 +60,31 @@ def generate_plane(n, dim, noise): #Use the xy plane then rotate about x axis,z 
     if noise > 0:
         data += np.random.normal(0, noise, data.shape)
 
-    #Rotate phi about x axis 
-    x_rotate = np.array([[1, 0, 0],
-                         [0, np.cos(phi), -np.sin(phi)],
-                         [0, np.sin(phi), np.cos(phi)]])
-    
-    z_rotate = np.array([[np.cos(theta), -np.sin(theta), 0],
-                         [np.sin(theta), np.cos(theta), 0],
-                         [0, 0, 1]])
-    
+    # Rotate phi about x axis
+    x_rotate = np.array(
+        [[1, 0, 0], [0, np.cos(phi), -np.sin(phi)], [0, np.sin(phi), np.cos(phi)]]
+    )
+
+    z_rotate = np.array(
+        [
+            [np.cos(theta), -np.sin(theta), 0],
+            [np.sin(theta), np.cos(theta), 0],
+            [0, 0, 1],
+        ]
+    )
+
     data = data @ x_rotate
     data = data @ z_rotate
 
     return data
+
 
 def generate_quadric_surface(n, dim, noise, scale_range):
     """
     Generates data points on a quadric surface in specified dimensions.
     """
     in_data = np.random.uniform(-1, 1, (n, dim - 1))
-    
+
     A = np.random.uniform(-1, 1, (dim - 1, dim - 1))
     A = (A + A.T) / 2  # Make it symmetric
 
@@ -81,7 +92,7 @@ def generate_quadric_surface(n, dim, noise, scale_range):
 
     c = np.random.uniform(-1, 1)
 
-    z_quadratic = np.einsum('ij,ij->i', in_data @ A, in_data)
+    z_quadratic = np.einsum("ij,ij->i", in_data @ A, in_data)
     z_linear = in_data @ b
     z = z_quadratic + z_linear + c
 
@@ -98,7 +109,8 @@ def generate_quadric_surface(n, dim, noise, scale_range):
 
     return out_data
 
-def generate_cube(n, dim, noise, scale_range): 
+
+def generate_cube(n, dim, noise, scale_range):
     """
     Generates data points on the surface of a cube in specified dimensions.
     Uses rejection sampling to ensure all points are within [-1, 1].
@@ -140,17 +152,18 @@ def generate_cube(n, dim, noise, scale_range):
     # Trim to n points
     data = data[:n]
     return data
-    
+
+
 def generate_sphere(n, dim, noise=0.0, scale_range=(1.0, 1.0)):
     """
     Generates data points on the surface of a sphere in specified dimensions.
-    
+
     Parameters:
         n (int): Number of data points to generate.
         dim (int): Dimensionality of the space.
         noise (float): Standard deviation of Gaussian noise to add to the data.
         scale_range (tuple): Range (min, max) for the sphere's radius scaling.
-    
+
     Returns:
         data (np.ndarray): Array of shape (n, dim) containing the generated data points.
     """
@@ -182,7 +195,9 @@ def generate_sphere(n, dim, noise=0.0, scale_range=(1.0, 1.0)):
     # If not enough points after rejection, repeat until we have n points
     while data.shape[0] < n:
         additional_n = n - data.shape[0]
-        additional_data = np.random.normal(0, 1, (additional_n * 2, dim))  # Generate extra points
+        additional_data = np.random.normal(
+            0, 1, (additional_n * 2, dim)
+        )  # Generate extra points
         norms = np.linalg.norm(additional_data, axis=1, keepdims=True)
         additional_data = additional_data / norms
         additional_data *= scale
@@ -196,24 +211,49 @@ def generate_sphere(n, dim, noise=0.0, scale_range=(1.0, 1.0)):
     data = data[:n]  # Trim to n points
 
     return data
-    
+
 
 implemented_shapes = ["line", "plane", "cube", "quadric_surface", "sphere"]
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="generate_dummy_data", 
-                                     description='Generate dummy data in unit cube for development work')
-    
-    parser.add_argument('--out', type=str, default="data/dummy_data/", help='Output directory')
-    parser.add_argument('--n', type=int, default=1024, help='Number of samples to generate')
-    parser.add_argument('--dim', type=int, default=3, help='Dimension of data')
-    parser.add_argument('--shape', type=str, default=None, help='Shape of data to generate, defaults to uniform mix of all shapes')
-    parser.add_argument('--noise', type=float, default=0.01, help='Noise variance to add to data')
-    parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--scalerange', nargs=2, type=float, default=[0.7, 1.3], help='Range of scale for shapes') 
-    parser.add_argument('--ratios', nargs = 3, type = float, default = [0.6, 0.2, 0.2], help = 'Ratios of train, test and val data')
-    parser.add_argument('--v', type = bool, default = False, help = 'Verbose mode')
+    parser = argparse.ArgumentParser(
+        prog="generate_dummy_data",
+        description="Generate dummy data in unit cube for development work",
+    )
+
+    parser.add_argument(
+        "--out", type=str, default="data/dummy_data/", help="Output directory"
+    )
+    parser.add_argument(
+        "--n", type=int, default=1024, help="Number of samples to generate"
+    )
+    parser.add_argument("--dim", type=int, default=3, help="Dimension of data")
+    parser.add_argument(
+        "--shape",
+        type=str,
+        default=None,
+        help="Shape of data to generate, defaults to uniform mix of all shapes",
+    )
+    parser.add_argument(
+        "--noise", type=float, default=0.01, help="Noise variance to add to data"
+    )
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument(
+        "--scalerange",
+        nargs=2,
+        type=float,
+        default=[0.7, 1.3],
+        help="Range of scale for shapes",
+    )
+    parser.add_argument(
+        "--ratios",
+        nargs=3,
+        type=float,
+        default=[0.6, 0.2, 0.2],
+        help="Ratios of train, test and val data",
+    )
+    parser.add_argument("--v", type=bool, default=False, help="Verbose mode")
 
     args = parser.parse_args()
 
@@ -240,7 +280,9 @@ if __name__ == "__main__":
             elif shape == "cube":
                 data = generate_cube(args.n, args.dim, args.noise, args.scalerange)
             elif shape == "quadric_surface":
-                data = generate_quadric_surface(args.n, args.dim, args.noise, args.scalerange)
+                data = generate_quadric_surface(
+                    args.n, args.dim, args.noise, args.scalerange
+                )
             elif shape == "sphere":
                 data = generate_sphere(args.n, args.dim, args.noise, args.scalerange)
             else:
@@ -253,33 +295,34 @@ if __name__ == "__main__":
 
             if args.v:
                 print(f"Saved {out_path}/{shape}_{generated}.npy")
-            splits = pd.concat([splits, pd.DataFrame({"identifier": [f"{shape}_{generated}"], "split": [None]})], ignore_index=True)
+            splits = pd.concat(
+                [
+                    splits,
+                    pd.DataFrame(
+                        {"identifier": [f"{shape}_{generated}"], "split": [None]}
+                    ),
+                ],
+                ignore_index=True,
+            )
             generated += 1
             if generated >= args.n:
                 break
 
-    #shuffle splits file
+    # shuffle splits file
     splits = splits.sample(frac=1, random_state=args.seed).reset_index(drop=True)
 
-    #Split data
-    train_split = int(args.ratios[0]*args.n)
-    test_split = int(args.ratios[1]*args.n)
+    # Split data
+    train_split = int(args.ratios[0] * args.n)
+    test_split = int(args.ratios[1] * args.n)
     val_split = args.n - train_split - test_split
 
     splits.loc[:train_split, "split"] = "train"
-    splits.loc[train_split:train_split+test_split, "split"] = "test"
-    splits.loc[train_split+test_split:, "split"] = "val"
+    splits.loc[train_split : train_split + test_split, "split"] = "test"
+    splits.loc[train_split + test_split :, "split"] = "val"
 
-    #Shuffle again
+    # Shuffle again
     splits = splits.sample(frac=1, random_state=args.seed).reset_index(drop=True)
 
     splits.to_csv(os.path.join(args.out, "splits.csv"), index=False)
 
-
-    
-
     print(f"Generated {generated} samples in total")
-    
-
-
-    

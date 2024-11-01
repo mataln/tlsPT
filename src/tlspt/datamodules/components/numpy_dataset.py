@@ -28,7 +28,9 @@ class NumpyDataset(base.BaseDataset):
         dataset: name of the dataset
         """
         if num_channels < 3 + int(has_labels):
-            raise ValueError(f"num_channels must be at least {3 + int(has_labels)} with labels: {has_labels}")
+            raise ValueError(
+                f"num_channels must be at least {3 + int(has_labels)} with labels: {has_labels}"
+            )
 
         self.num_channels = num_channels
         self.dataset = f"numpy_{num_channels}ch"
@@ -41,10 +43,7 @@ class NumpyDataset(base.BaseDataset):
         # Last step - init normalizer
         self.normalizer = TlsNormalizer(
             self,
-            params={
-                "num_channels": num_channels,
-                "has_labels": has_labels
-            },
+            params={"num_channels": num_channels, "has_labels": has_labels},
         )
 
     def prepare_data(self, force_compute=False):
