@@ -1,7 +1,7 @@
 name: tlspt
 
 dependencies:
-  - python=3.10
+  - python=3.9
   - h5py
   - cchardet
   - numpy<2.0.0

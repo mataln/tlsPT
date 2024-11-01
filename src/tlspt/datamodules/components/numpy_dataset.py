@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tlspt import io
+from tlspt.io import io
 from tlspt.utils import TlsNormalizer
 
 from . import base
