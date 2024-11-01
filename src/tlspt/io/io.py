@@ -1,32 +1,26 @@
 from __future__ import annotations
 
-import numpy as np
-
-from tlspt import utils
-
-from tlspt.structures.pointclouds import TLSPointclouds
-from pytorch3d.io.pluggable_formats import PointcloudFormatInterpreter, endswith 
-from collections import namedtuple
-from iopath.common.file_io import PathManager
-from dataclasses import dataclass
-from typing import Optional, List
-
-from pytorch3d.io.utils import PathOrStr, _open_file, _make_tensor
-from pytorch3d.io.ply_io import (
-    _load_ply_raw, 
-    _write_ply_header, 
-    _check_faces_indices, 
-    _PlyHeader, 
-    _PlyElementType,)
-
-import torch
 import sys
-
-from dataclasses import asdict
-
+from collections import namedtuple
+from dataclasses import asdict, dataclass
 from io import BytesIO
 
+import numpy as np
+import torch
+from iopath.common.file_io import PathManager
 from loguru import logger
+from pytorch3d.io.pluggable_formats import PointcloudFormatInterpreter, endswith
+from pytorch3d.io.ply_io import (
+    _check_faces_indices,
+    _load_ply_raw,
+    _PlyElementType,
+    _PlyHeader,
+    _write_ply_header,
+)
+from pytorch3d.io.utils import PathOrStr, _make_tensor, _open_file
+
+from tlspt import utils
+from tlspt.structures.pointclouds import TLSPointclouds
 
 _PlyTypeData = namedtuple("_PlyTypeData", "size struct_char np_type")
 _PLY_TYPES = {
@@ -48,6 +42,7 @@ _PLY_TYPES = {
     "float64": _PlyTypeData(8, "d", np.float64),
 }
 
+
 @dataclass(frozen=True)
 class _VertsColumnIndices:
     """
@@ -61,12 +56,13 @@ class _VertsColumnIndices:
                     otherwise None.
     """
 
-    point_idxs: List[int]
-    feature_idxs: Optional[List[int]]
-    feature_names: Optional[List[str]]
+    point_idxs: list[int]
+    feature_idxs: list[int] | None
+    feature_names: list[str] | None
     color_scale: float
-    normal_idxs: Optional[List[int]]
-    texture_uv_idxs: Optional[List[int]]
+    normal_idxs: list[int] | None
+    texture_uv_idxs: list[int] | None
+
 
 @dataclass(frozen=True)
 class _VertsData:
@@ -79,10 +75,11 @@ class _VertsData:
     """
 
     verts: torch.Tensor
-    verts_features: Optional[torch.Tensor] = None
-    feature_names: Optional[List[str]] = None
-    verts_normals: Optional[torch.Tensor] = None
-    verts_texture_uvs: Optional[torch.Tensor] = None
+    verts_features: torch.Tensor | None = None
+    feature_names: list[str] | None = None
+    verts_normals: torch.Tensor | None = None
+    verts_texture_uvs: torch.Tensor | None = None
+
 
 @dataclass(frozen=True)
 class _PlyData:
@@ -98,11 +95,12 @@ class _PlyData:
 
     header: _PlyHeader
     verts: torch.Tensor
-    faces: Optional[torch.Tensor]
-    verts_features: Optional[torch.Tensor]
-    feature_names: Optional[List[str]]
-    verts_normals: Optional[torch.Tensor]
-    verts_texture_uvs: Optional[torch.Tensor]
+    faces: torch.Tensor | None
+    verts_features: torch.Tensor | None
+    feature_names: list[str] | None
+    verts_normals: torch.Tensor | None
+    verts_texture_uvs: torch.Tensor | None
+
 
 def _get_verts_column_indices(
     vertex_head: _PlyElementType,
@@ -136,12 +134,12 @@ def _get_verts_column_indices(
     Returns:
         _VertsColumnIndices object
     """
-    point_idxs: List[Optional[int]] = [None, None, None]
-    color_idxs: List[Optional[int]] = [None, None, None]
-    normal_idxs: List[Optional[int]] = [None, None, None]
-    feature_idxs: List[Optional[int]] = []
-    feature_names: List[Optional[str]] = []
-    texture_uv_idxs: List[Optional[int]] = [None, None]
+    point_idxs: list[int | None] = [None, None, None]
+    color_idxs: list[int | None] = [None, None, None]
+    normal_idxs: list[int | None] = [None, None, None]
+    feature_idxs: list[int | None] = []
+    feature_names: list[str | None] = []
+    texture_uv_idxs: list[int | None] = [None, None]
     for i, prop in enumerate(vertex_head.properties):
         stashed = False
         if prop.list_size_type is not None:
@@ -163,13 +161,15 @@ def _get_verts_column_indices(
                 texture_uv_idxs[j] = i
                 stashed = True
         if not stashed:
-            feature_idxs.append(i) #There is a feature at index i
+            feature_idxs.append(i)  # There is a feature at index i
             feature_names.append(prop.name)
 
     feature_idxs = feature_idxs if None in color_idxs else color_idxs + feature_idxs
-    feature_names = feature_names if None in color_idxs else ["red", "green", "blue"] + feature_names
-
-
+    feature_names = (
+        feature_names
+        if None in color_idxs
+        else ["red", "green", "blue"] + feature_names
+    )
 
     if None in point_idxs:
         raise ValueError("Invalid vertices in file.")
@@ -187,6 +187,7 @@ def _get_verts_column_indices(
         normal_idxs=None if None in normal_idxs else normal_idxs,
         texture_uv_idxs=None if None in texture_uv_idxs else texture_uv_idxs,
     )
+
 
 def _get_verts(header: _PlyHeader, elements: dict) -> _VertsData:
     """
@@ -214,7 +215,10 @@ def _get_verts(header: _PlyHeader, elements: dict) -> _VertsData:
         if column_idxs.feature_idxs is None:
             return _VertsData(verts=verts)
         return _VertsData(
-            verts=verts, verts_features=torch.zeros((0, len(column_idxs.feature_names)), dtype=torch.float32)
+            verts=verts,
+            verts_features=torch.zeros(
+                (0, len(column_idxs.feature_names)), dtype=torch.float32
+            ),
         )
 
     # Simple case where the only data is the vertices themselves
@@ -238,8 +242,12 @@ def _get_verts(header: _PlyHeader, elements: dict) -> _VertsData:
             vertex_features = torch.tensor(
                 vertex[0][:, column_idxs.feature_idxs], dtype=torch.float32
             )
-            #Color scale the features corresponding to colors
-            color_idxs = [i for i, name in enumerate(column_idxs.feature_names) if name in ["red", "green", "blue"]]
+            # Color scale the features corresponding to colors
+            color_idxs = [
+                i
+                for i, name in enumerate(column_idxs.feature_names)
+                if name in ["red", "green", "blue"]
+            ]
             if color_idxs:
                 vertex_features[:, color_idxs] *= column_idxs.color_scale
         if column_idxs.normal_idxs is not None:
@@ -275,12 +283,17 @@ def _get_verts(header: _PlyHeader, elements: dict) -> _VertsData:
             #   verts[:, axis] = torch.tensor((vertex[partnum][:, col]))
         if column_idxs.feature_idxs is not None:
             vertex_features = torch.empty(
-                size=(vertex_head.count, len(column_idxs.feature_idxs)), dtype=torch.float32
+                size=(vertex_head.count, len(column_idxs.feature_idxs)),
+                dtype=torch.float32,
             )
             for i, feature_idx in enumerate(column_idxs.feature_idxs):
                 partnum, col = prop_to_partnum_col[feature_idx]
                 vertex_features.numpy()[:, i] = vertex[partnum][:, col]
-            color_idxs = [i for i, name in enumerate(column_idxs.feature_names) if name in ["red", "green", "blue"]]
+            color_idxs = [
+                i
+                for i, name in enumerate(column_idxs.feature_names)
+                if name in ["red", "green", "blue"]
+            ]
             if color_idxs:
                 vertex_features[:, color_idxs] *= column_idxs.color_scale
         if column_idxs.normal_idxs is not None:
@@ -306,7 +319,10 @@ def _get_verts(header: _PlyHeader, elements: dict) -> _VertsData:
         verts_texture_uvs=vertex_texture_uvs,
     )
 
-def load_numpy(file_path: str, out_dtype: np.dtype = np.float32, allow_pickle: bool = False) -> np.ndarray:
+
+def load_numpy(
+    file_path: str, out_dtype: np.dtype = np.float32, allow_pickle: bool = False
+) -> np.ndarray:
     """
     Loads a numpy file from disk
     """
@@ -319,6 +335,7 @@ def load_numpy(file_path: str, out_dtype: np.dtype = np.float32, allow_pickle: b
     arr = np.load(file_path, allow_pickle=allow_pickle)
     arr = arr.astype(out_dtype)
     return arr
+
 
 def _load_ply(f, *, path_manager: PathManager) -> _PlyData:
     """
@@ -338,9 +355,8 @@ def _load_ply(f, *, path_manager: PathManager) -> _PlyData:
     header, elements = _load_ply_raw(f, path_manager=path_manager)
     verts_data = _get_verts(header, elements)
 
-    #vertex_head = next(head for head in header.elements if head.name == "vertex")
-    #print(vertex_head.properties)
-
+    # vertex_head = next(head for head in header.elements if head.name == "vertex")
+    # print(vertex_head.properties)
 
     face = elements.get("face", None)
     if face is not None:
@@ -380,14 +396,15 @@ def _load_ply(f, *, path_manager: PathManager) -> _PlyData:
 
     return _PlyData(**asdict(verts_data), faces=faces, header=header)
 
+
 def _write_ply_header(
     f,
     *,
     verts: torch.Tensor,
-    faces: Optional[torch.LongTensor],
-    verts_normals: Optional[torch.Tensor],
-    verts_features: Optional[torch.Tensor],
-    feature_names: Optional[List[str]],
+    faces: torch.LongTensor | None,
+    verts_normals: torch.Tensor | None,
+    verts_features: torch.Tensor | None,
+    feature_names: list[str] | None,
     ascii: bool,
     colors_as_uint8: bool,
 ) -> None:
@@ -429,7 +446,13 @@ def _write_ply_header(
         color_ply_type = b"uchar" if colors_as_uint8 else b"float"
         for feature_name in feature_names:
             if feature_name in ["red", "green", "blue"]:
-                f.write(b"property " + color_ply_type + b" " + feature_name.encode("ascii") + b"\n")
+                f.write(
+                    b"property "
+                    + color_ply_type
+                    + b" "
+                    + feature_name.encode("ascii")
+                    + b"\n"
+                )
             else:
                 f.write(b"property float " + feature_name.encode("ascii") + b"\n")
     if len(verts) and faces is not None:
@@ -437,17 +460,19 @@ def _write_ply_header(
         f.write(b"property list uchar int vertex_index\n")
     f.write(b"end_header\n")
 
+
 def _save_ply(
     f,
     *,
     verts: torch.Tensor,
-    faces: Optional[torch.LongTensor],
-    verts_normals: Optional[torch.Tensor],
-    verts_features: Optional[torch.Tensor],
-    feature_names: Optional[List[str]],
+    faces: torch.LongTensor | None,
+    verts_normals: torch.Tensor | None,
+    verts_features: torch.Tensor | None,
+    feature_names: list[str] | None,
     ascii: bool,
-    decimal_places: Optional[int] = None,
+    decimal_places: int | None = None,
     colors_as_uint8: bool,
+    remove: list[str] | None = None,
 ) -> None:
     """
     Internal implementation for saving 3D data to a .ply file.
@@ -457,12 +482,29 @@ def _save_ply(
         verts: FloatTensor of shape (V, 3) giving vertex coordinates.
         faces: LongTensor of shape (F, 3) giving faces.
         verts_normals: FloatTensor of shape (V, 3) giving vertex normals.
-        verts_colors: FloatTensor of shape (V, 3) giving vertex colors.
+        verts_features: FloatTensor of shape (V, C) giving vertex features.
+        feature_names: List of feature names, in order matching the feature channels in the features tensor.
         ascii: (bool) whether to use the ascii ply format.
         decimal_places: Number of decimal places for saving if ascii=True.
         colors_as_uint8: Whether to save colors as numbers in the range
                     [0, 255] instead of float32.
     """
+    if len(feature_names) != verts_features.shape[1]:
+        raise ValueError(
+            f"Number of feature names must match number of feature channels. Received {len(feature_names)} feature names and {verts_features.shape[1]} feature channels."
+        )
+
+    if remove is not None:
+        feature_idxs_to_remove = [
+            i for i, name in enumerate(feature_names) if name in remove
+        ]
+        verts_features = np.delete(verts_features, feature_idxs_to_remove, axis=1)
+        feature_names = [
+            name
+            for i, name in enumerate(feature_names)
+            if i not in feature_idxs_to_remove
+        ]
+
     _write_ply_header(
         f,
         verts=verts,
@@ -479,15 +521,19 @@ def _save_ply(
         return
 
     color_np_type = np.ubyte if colors_as_uint8 else np.float32
+    color_idxs = [
+        i for i, name in enumerate(feature_names) if name in ["red", "green", "blue"]
+    ]
     verts_dtype = [("verts", np.float32, 3)]
+
     if verts_normals is not None:
         verts_dtype.append(("normals", np.float32, 3))
     if verts_features is not None:
-        # pyre-fixme[6]: For 1st argument expected `Tuple[str,
-        #  Type[floating[_32Bit]], int]` but got `Tuple[str,
-        #  Type[Union[floating[_32Bit], unsignedinteger[typing.Any]]], int]`.
-        verts_dtype.append(("colors", color_np_type, 3))
-        verts_dtype.append(("features", np.float32, verts_features.shape[1]))
+        if color_idxs:
+            verts_dtype.append(("colors", color_np_type, 3))
+            verts_dtype.append(("features", np.float32, verts_features.shape[1] - 3))
+        else:
+            verts_dtype.append(("features", np.float32, verts_features.shape[1]))
 
     vert_data = np.zeros(verts.shape[0], dtype=verts_dtype)
     vert_data["verts"] = verts.detach().cpu().numpy()
@@ -495,23 +541,37 @@ def _save_ply(
         vert_data["normals"] = verts_normals.detach().cpu().numpy()
     if verts_features is not None:
         feature_data = verts_features.detach().cpu().numpy()
-        color_idxs = [i for i, name in enumerate(feature_names) if name in ["red", "green", "blue"]]
+        color_data = feature_data[:, color_idxs] if color_idxs else None
+        feature_data = np.delete(feature_data, color_idxs, axis=1)
+
+        if color_idxs and colors_as_uint8:
+            vert_data["colors"] = np.rint(color_data * 255)
+        elif color_idxs:
+            vert_data["colors"] = color_data
+
         vert_data["features"] = feature_data
-        if colors_as_uint8:
-            vert_data["featurse"][:, color_idxs] = np.rint(feature_data[:, color_idxs] * 255)
-            #vert_data["colors"] = np.rint(color_data * 255)
 
     if ascii:
         if decimal_places is None:
             float_str = b"%f"
         else:
             float_str = b"%" + b".%df" % decimal_places
-        float_group_str = (float_str + b" ") * 3
+        float_group_str = (float_str + b" ") * 3  # Group of 3 floats
         formats = [float_group_str]
         if verts_normals is not None:
-            formats.append(float_group_str)
+            formats.append(float_group_str)  # Group of 3 floats
         if verts_features is not None:
-            formats.append(b"%d %d %d " if colors_as_uint8 else float_group_str)
+            if color_idxs:
+                formats.append(
+                    b"%d %d %d " if colors_as_uint8 else float_group_str
+                )  # Group of 3 colors (uint8 or float)
+                formats.append(
+                    (float_str + b" ") * (verts_features.shape[1] - 3)
+                )  # Group of C-3 floats
+            else:
+                formats.append(
+                    (float_str + b" ") * verts_features.shape[1]
+                )  # Group of C floats
         formats[-1] = formats[-1][:-1] + b"\n"
         for line_data in vert_data:
             for data, format in zip(line_data, formats):
@@ -545,6 +605,7 @@ def _save_ply(
                 else:
                     faces_uints.tofile(f)
 
+
 class PointcloudPlyFormat(PointcloudFormatInterpreter):
     def __init__(self) -> None:
         self.known_suffixes = (".ply",)
@@ -555,7 +616,7 @@ class PointcloudPlyFormat(PointcloudFormatInterpreter):
         device,
         path_manager: PathManager,
         **kwargs,
-    ) -> Optional[TLSPointclouds]:
+    ) -> TLSPointclouds | None:
         if not endswith(path, self.known_suffixes):
             return None
         data = _load_ply(f=path, path_manager=path_manager)
@@ -567,10 +628,10 @@ class PointcloudPlyFormat(PointcloudFormatInterpreter):
             normals = [data.verts_normals.to(device)]
 
         pointcloud = TLSPointclouds(
-            points=[data.verts.to(device)], 
+            points=[data.verts.to(device)],
             features=features,
             feature_names=data.feature_names,
-            normals=normals
+            normals=normals,
         )
         return pointcloud
 
@@ -579,9 +640,10 @@ class PointcloudPlyFormat(PointcloudFormatInterpreter):
         data: TLSPointclouds,
         path: PathOrStr,
         path_manager: PathManager,
-        binary: Optional[bool],
-        decimal_places: Optional[int] = None,
+        binary: bool | None,
+        decimal_places: int | None = None,
         colors_as_uint8: bool = False,
+        remove: list[str] | None = None,
         **kwargs,
     ) -> bool:
         """
@@ -608,5 +670,6 @@ class PointcloudPlyFormat(PointcloudFormatInterpreter):
                 ascii=binary is False,
                 decimal_places=decimal_places,
                 colors_as_uint8=colors_as_uint8,
+                remove=remove,
             )
         return True
