@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import os
 
+from loguru import logger
+
 # from pytorch3d.io import IO
 from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.file_octree import FileOctree as FOctree
@@ -23,6 +25,7 @@ def main():
     output_folder = args.output_folder
 
     os.makedirs(output_folder, exist_ok=True)
+    os.makedirs(os.path.join(output_folder, "voxels"), exist_ok=True)
 
     ply_files = [x for x in os.listdir(input_folder) if x.endswith(".ply")]
 
@@ -33,10 +36,17 @@ def main():
             path=os.path.join(input_folder, file), device="cpu"
         )
 
-    pointclouds = [read(file) for file in ply_files[:10]]
+    pointclouds = [read(file) for file in ply_files]
 
-    octree = FOctree()
-    octree.build_from_pointcloud(pointclouds)
+    octree = FOctree(pointclouds, min_scale=1.0)
+    octree.save(out_folder=output_folder, out_fname="test.json")
+    octree.save_voxels(
+        pointclouds,
+        out_folder=os.path.join(output_folder, "voxels"),
+        insert_missing_features=True,
+    )
+
+    logger.info("Octree saved to {output_folder}")
 
     # Save to test.ply
     # reader.save_pointcloud(
