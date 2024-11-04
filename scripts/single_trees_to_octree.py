@@ -16,13 +16,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_folder", type=str, required=True)
     parser.add_argument("--output_folder", type=str, required=True)
-    parser.add_argument("--max_depth", type=int, default=8)
+    parser.add_argument("--octree-fname", type=str, default="octree.json")
+    parser.add_argument("--min_scale", type=float, default=1.5)
     parser.add_argument("--v", type=bool, default=False)
 
     args = parser.parse_args()
 
     input_folder = args.input_folder
     output_folder = args.output_folder
+    octree_fname = args.octree_fname
+    min_scale = args.min_scale
 
     os.makedirs(output_folder, exist_ok=True)
     os.makedirs(os.path.join(output_folder, "voxels"), exist_ok=True)
@@ -38,8 +41,10 @@ def main():
 
     pointclouds = [read(file) for file in ply_files]
 
-    octree = FOctree(pointclouds, min_scale=1.0)
-    octree.save(out_folder=output_folder, out_fname="test.json")
+    octree = FOctree(
+        pointclouds, min_scale=min_scale
+    )  # Scale of leaves will be in min_scale to 2*min_scale
+    octree.save(out_folder=output_folder, out_fname=octree_fname)
     octree.save_voxels(
         pointclouds,
         out_folder=os.path.join(output_folder, "voxels"),

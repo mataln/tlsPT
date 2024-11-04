@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Sequence
 
 import torch
+from loguru import logger
 from pytorch3d.structures import Pointclouds
 
 
@@ -95,6 +96,10 @@ def join_pointclouds_as_batch(
                 for i, fn in enumerate(feature_names_list)
                 if fn != reference_feature_names
             ]
+
+            logger.warning(
+                f"A total of {len(idxs)} from {len(feature_names_list)} point clouds have missing features. Inserting missing features."
+            )
 
             for i in idxs:
                 # Special case: point cloud has no features
