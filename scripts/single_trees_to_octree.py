@@ -30,7 +30,9 @@ def main():
     os.makedirs(output_folder, exist_ok=True)
     os.makedirs(os.path.join(output_folder, "voxels"), exist_ok=True)
 
+    logger.info(f"Searching for .ply files in {input_folder}")
     ply_files = [x for x in os.listdir(input_folder) if x.endswith(".ply")]
+    logger.info(f"Found {len(ply_files)} .ply files")
 
     reader = TR()
 
