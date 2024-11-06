@@ -136,16 +136,23 @@ def check_file_exists(file: str) -> bool:
 
 def check_dir_exists(dir: str) -> bool:
     """
-    checks if a directory exists, works for local directories and directories in a bucket
+    checks if a directory exists, works for local directories
     """
     return os.path.isdir(dir)
 
 
 def list_all_files(dir: str) -> list:
     """
-    returns a list of all files in a directory, works for local directories and directories in a bucket
+    returns a list of all files in a directory, works for local directories
     """
     return os.listdir(dir)
+
+
+def list_all_folders(dir: str) -> list:
+    """
+    returns a list of all folders in a directory, works for local directories
+    """
+    return [f for f in os.listdir(dir) if os.path.isdir(os.path.join(dir, f))]
 
 
 def get_hash(s: str):

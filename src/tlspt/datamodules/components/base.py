@@ -35,7 +35,7 @@ class BaseDataset(Dataset):
                 f"invalid split '{split}', must be one of 'train', 'test' or 'val'"
             )
 
-        if voxel_format not in ["npy"]:
+        if voxel_format not in ["npy", "ply"]:
             raise ValueError(f"unsupported voxel format {voxel_format}")
 
         if not utils.check_file_exists(split_file):

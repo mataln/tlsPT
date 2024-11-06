@@ -148,7 +148,7 @@ class FileOctree:
                 )
             self.build_from_pointcloud(init_from, min_scale)
         else:
-            logger.info(f"Initializing octree from {type(init_from)}")
+            logger.info(f"Initializing octree from {type(init_from)} {init_from}")
             if min_scale is not None:
                 raise ValueError(
                     "min_scale must not be provided when initializing from folder"
@@ -224,6 +224,36 @@ class FileOctree:
             json.dump(self.root.to_dict(), f, indent=4)
 
         return
+
+    def find_nodes_by_scale(self, scale: int):
+        """
+        Finds nodes with scale < node scale < 2*node scale
+        """
+        nodes = []
+        queue = deque()
+        queue.appendleft(self.root)
+        while queue:
+            node = queue.pop()
+            if node.scale > scale and node.scale < 2 * scale:
+                nodes.append(node)
+            else:
+                queue.extendleft(node.children)
+        return nodes
+
+    def find_leaves_under_node(self, node: _OctreeNode):
+        """
+        Finds all leaf nodes under a node
+        """
+        leaves = []
+        queue = deque()
+        queue.appendleft(node)
+        while queue:
+            node = queue.pop()
+            if node.is_leaf():
+                leaves.append(node)
+            else:
+                queue.extendleft(node.children)
+        return leaves
 
     def build_from_pointcloud(
         self, pointclouds: TLSPointclouds | list[TLSPointclouds], min_scale: int = 1.0

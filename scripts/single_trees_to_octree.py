@@ -41,7 +41,17 @@ def main():
             path=os.path.join(input_folder, file), device="cpu"
         )
 
-    pointclouds = [read(file) for file in ply_files]
+    logger.info("Reading point clouds")
+    pointclouds = []
+    failed = 0
+    for file in ply_files:
+        try:
+            pointclouds.append(read(file))
+        except Exception as e:
+            logger.error(f"Error reading {file}: {e}")
+            failed += 1
+    logger.info(f"Failed to read {failed} point clouds")
+    # pointclouds = [read(file) for file in ply_files]
 
     octree = FOctree(
         pointclouds, min_scale=min_scale
