@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
+import torch
+
 from tlspt.datamodules.components.base_site import BaseSiteDataset
 from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.file_octree import FileOctree
-from tlspt.structures.pointclouds import join_pointclouds_as_scene
+from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
+from tlspt.utils import TlsNormalizer, get_hash
 
 
 class OctreeDataset(BaseSiteDataset):
     """
-    Base class for single-site datasets
+    Dataset for octree based file storage. One octree per plot.
     """
 
     def __init__(
@@ -18,6 +22,10 @@ class OctreeDataset(BaseSiteDataset):
         split_file: str,
         split: str,
         scale: int,
+        feature_names: list = None,
+        features_to_normalize: list = ["red", "green", "blue"],
+        normalize: bool = True,
+        transform=None,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -28,6 +36,10 @@ class OctreeDataset(BaseSiteDataset):
         self.split_file = split_file
         self.split = split
         self.site_name = os.path.basename(self.split_file).split("-plot")[0]
+        self.feature_names = feature_names
+        self.normalize = normalize
+        self.scale = scale
+        self.transform = transform
 
         super().__init__(split_file, split, self.site_name, "ply")
 
@@ -37,7 +49,7 @@ class OctreeDataset(BaseSiteDataset):
 
         # Work out which files need to be loaded
         self.nodes = [
-            octree.find_nodes_by_scale(scale) for octree in self.octrees
+            octree.find_nodes_by_scale(self.scale) for octree in self.octrees
         ]  # Each entry is a list of nodes for a plot
 
         self.leaf_nodes = [
@@ -62,13 +74,31 @@ class OctreeDataset(BaseSiteDataset):
         for plot_files in files_to_load:
             self.files_to_load.extend(plot_files)
 
+        # Init TLS reader
         self.reader = TR()
 
-    def prepare_data(self):
+        # Init normalizer
+        self.normalizer = TlsNormalizer(
+            self,
+            params={"features_to_normalize": features_to_normalize},
+            n_samples=1000,
+            out_dtype=torch.float32,
+        )
+
+    def __repr__(self):
+        return get_hash(
+            self.__class__.__name__
+            + str(self.split_file)
+            + str(self.split)
+            + str(self.scale)
+        )
+
+    def prepare_data(self, force_compute=False):
         """
         Preprocessing step to be defined in each dataset.
         """
-        raise NotImplementedError("Not implemented for base site dataset")
+        if self.normalize:
+            self.normalizer.prepare_data(force_compute=force_compute)
         return
 
     def find_octree_files(self):
@@ -95,9 +125,26 @@ class OctreeDataset(BaseSiteDataset):
         leaf_node_pointclouds = [
             self.reader.load_pointcloud(f) for f in voxel_leaf_nodes
         ]
-        return join_pointclouds_as_scene(
+        pc = join_pointclouds_as_scene(
             leaf_node_pointclouds, insert_missing_features=True
         )
+
+        if self.feature_names is None:
+            return TLSPointclouds(points=pc.points_packed().unsqueeze(0), features=None)
+        else:
+            # Create a feature array in the requested order, filling in missing features with NaNs
+            feature_indices = [
+                pc._feature_names.index(name) if name in pc._feature_names else -1
+                for name in self.feature_names
+            ]
+            features = pc.features_packed()[:, feature_indices]
+            if -1 in feature_indices:  # Fill in missing features with NaNs
+                features[:, feature_indices.index(-1)] = np.nan
+            return TLSPointclouds(
+                points=pc.points_packed().unsqueeze(0),
+                features=features.unsqueeze(0),
+                feature_names=self.feature_names,
+            )
 
     def __getitem__(self, idx):
         """
@@ -105,15 +152,17 @@ class OctreeDataset(BaseSiteDataset):
         """
         pc = self.load_item(idx)
 
-        # if self.normalizer.mean is None:
-        #     raise ValueError("Normalizer not computed. Run prepare_data first.")
-        # if self.normalize:
-        #     arr = self.normalizer.normalize(arr)
+        if self.normalize:
+            if self.normalizer.mean is None and self.feature_names is not None:
+                raise ValueError("Normalizer not computed. Run prepare_data first.")
+            pc = self.normalizer.normalize(pc)
 
-        # if self.transform is not None:
-        #     arr = self.transform(arr)
+        datapoint = {"points": pc.points_packed(), "features": pc.features_packed()}
 
-        return pc
+        if self.transform:
+            datapoint = self.transform(datapoint)
+
+        return datapoint
 
     def __len__(self):
         return len(self.files_to_load)

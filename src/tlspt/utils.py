@@ -5,27 +5,31 @@ import os
 import pickle
 
 import numpy as np
+import torch
 from loguru import logger
 from progressbar import progressbar as pbar
+
+from tlspt.structures.pointclouds import TLSPointclouds
 
 
 class TlsNormalizer:
     def __init__(
         self,
         dataset,
-        params,
+        params=None,
         n_samples=1000,  # Note - this is number of files, not number of points
-        out_dtype=np.float32,
+        out_dtype=torch.float,
     ):
         self.dataset = dataset
         self.params = params
         self.n_samples = n_samples
         self.out_dtype = out_dtype
 
-        self.num_channels = params["num_channels"]
-        self.has_labels = params["has_labels"]
+        self.features_to_normalize = params.get("features_to_normalize", None)
 
-        self.hash = get_hash(str(params) + str(n_samples) + str(out_dtype))
+        self.hash = get_hash(
+            self.dataset.__repr__() + str(params) + str(n_samples) + str(out_dtype)
+        )
 
         self.stats_file = os.path.join(
             self.dataset.base_folder, f"stats/stats_{self.hash}.pkl"
@@ -37,6 +41,9 @@ class TlsNormalizer:
         self.std = None
 
     def prepare_data(self, force_compute=False):
+        if self.dataset.feature_names is None:
+            logger.info("No features to normalize")
+            return
         if not os.path.isfile(self.stats_file) or force_compute:
             if self.dataset.split != "train":
                 raise ValueError(
@@ -47,31 +54,35 @@ class TlsNormalizer:
                 f"{self.dataset.__class__.__name__}.{self.params}.{self.dataset.split}.{self.hash}: computing normalizer"
             )
 
-            x_sum = None
-            xsq_sum = None
+            f_sum = None
+            fsq_sum = None
 
             n = 0
             failed_files = 0
-            for idx in pbar(np.random.permutation(len(self.dataset))[: self.n_samples]):
+            for idx in pbar(
+                np.random.permutation(len(self.dataset))[: self.n_samples]
+            ):  # Over features
                 try:
-                    x = self.dataset.load_item(idx)  # Might be 12414221x4 for example
+                    f = self.dataset.load_item(
+                        idx
+                    ).features_packed()  # Get features nxC
                 except Exception as e:
                     failed_files += 1
                     logger.warning(f"Failed to load item {idx}: {e}")
                     logger.warning(f"Failed files: {failed_files}")
                     continue
 
-                if x_sum is None:
-                    x_sum = np.zeros(x.shape[1])
-                    xsq_sum = np.zeros(x.shape[1])
+                if f_sum is None:
+                    f_sum = torch.zeros(f.shape[1])
+                    fsq_sum = torch.zeros(f.shape[1])
 
-                x_sum += x.sum(axis=0)
-                xsq_sum += (x**2).sum(axis=0)
-                n += x.shape[0]  # Each pixel is one datapoint
+                f_sum += f.sum(axis=0)
+                fsq_sum += (f**2).sum(axis=0)
+                n += f.shape[0]  # Each pixel is one datapoint
 
             # Compute mean + std per channel
-            self.mean = x_sum / n
-            self.std = np.sqrt(xsq_sum / n - self.mean**2)
+            self.mean = f_sum / n
+            self.std = torch.sqrt(fsq_sum / n - self.mean**2)
 
             # Save stats
             with open(self.stats_file, "wb") as f:
@@ -94,37 +105,40 @@ class TlsNormalizer:
         logger.info(f"mean: {self.mean}")
         logger.info(f"std: {self.std}")
 
-        num_remaining_channels = min(self.num_channels - 3 - int(self.has_labels), 0)
+        self.num_features = len(self.dataset.feature_names)
 
-        self.mean = self.mean.astype(self.out_dtype)
-        self.std = self.std.astype(self.out_dtype)
+        logger.info(f"{self.out_dtype}")
+        self.mean = self.mean.type(self.out_dtype)
+        self.std = self.std.type(self.out_dtype)
 
         logger.info(
-            f"Dataset has {self.num_channels} channels, of which 3 are spatial, {num_remaining_channels} are non-spatial, and {int(self.has_labels)} are labels"
+            f"Dataset has {len(self.dataset.feature_names)} features named {self.dataset.feature_names}. \n Normalizing {self.features_to_normalize} by mean+std. "
         )
-        logger.info(
-            f"3 channels will be zero centered and scaled to [-1,1], {num_remaining_channels} channels will be normalized with mean and std"
-        )
+        logger.info(f"3 channels will be zero centered and scaled to [-1,1].")
 
     def normalize(self, x):
-        # Zero mean and [-1,1] for the first 3 channels
-        x[:, :3] = x[:, :3] - self.mean  # Zero center
-        max_val = np.abs(x[:, :3]).max()
-        x[:, :3] /= max_val
+        points = x.points_packed()
+        features = x.features_packed()
 
-        # Other (non-spatial) channels are normalized with mean and std
-        num_remaining_channels = x.shape[1] - 3
+        points = points - points.mean(dim=0)
+        points /= points.abs().max()
 
-        if self.has_labels:
-            num_remaining_channels -= 1  # Don't normalise the labels
+        if self.dataset.feature_names is None:
+            return TLSPointclouds(points=points.unsqueeze(0), features=None)
 
-        if num_remaining_channels > 0:
-            x[:, 3 : 3 + num_remaining_channels] = (
-                x[:, 3 : 3 + num_remaining_channels]
-                - self.mean[3 : 3 + num_remaining_channels]
-            ) / self.std[3 : 3 + num_remaining_channels]
+        if self.features_to_normalize is not None:
+            idx_to_normalize = [
+                self.dataset.feature_names.index(f) for f in self.features_to_normalize
+            ]
+            features[:, idx_to_normalize] = (
+                features[:, idx_to_normalize] - self.mean[idx_to_normalize]
+            ) / self.std[idx_to_normalize]
 
-        return x.astype(self.out_dtype)
+        return TLSPointclouds(
+            points=points.unsqueeze(0),
+            features=features.unsqueeze(0),
+            feature_names=self.dataset.feature_names,
+        )
 
 
 def check_file_exists(file: str) -> bool:

@@ -44,15 +44,20 @@ class TLSPointclouds(Pointclouds):
         representations.
         """
         super().__init__(points=points, normals=normals, features=features)
-        if isinstance(feature_names, list):
+        if isinstance(feature_names, list):  # List
             if len(feature_names) != self.features_list()[0].shape[1]:
                 raise ValueError(
                     "Number of feature names must match number of feature channels"
                 )
             if not (all(isinstance(x, str) for x in feature_names)):
                 raise ValueError("Feature names must be strings")
-        elif feature_names is not None:
+        elif feature_names is not None:  # Not list or None
             raise ValueError("Feature indices must be a list")
+        else:  # None
+            if features is not None:
+                raise ValueError(
+                    "Feature names must be provided if features are provided"
+                )
         self._feature_names = feature_names
 
 
