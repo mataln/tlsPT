@@ -85,6 +85,11 @@ class OctreeDataset(BaseSiteDataset):
             out_dtype=torch.float32,
         )
 
+    def __str__(self):
+        return (
+            f"{self.__class__.__name__}({self.split_file}, {self.split}, {self.scale})"
+        )
+
     def __repr__(self):
         return get_hash(
             self.__class__.__name__
@@ -157,7 +162,11 @@ class OctreeDataset(BaseSiteDataset):
                 raise ValueError("Normalizer not computed. Run prepare_data first.")
             pc = self.normalizer.normalize(pc)
 
-        datapoint = {"points": pc.points_packed(), "features": pc.features_packed()}
+        datapoint = (
+            {"points": pc.points_packed(), "features": pc.features_packed()}
+            if pc.features_packed() is not None
+            else {"points": pc.points_packed()}
+        )
 
         if self.transform:
             datapoint = self.transform(datapoint)

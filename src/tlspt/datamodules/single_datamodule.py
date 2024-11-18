@@ -20,6 +20,7 @@ class SingleDataModule(
         prefetch_factor: int = 2,
     ):
         super().__init__()
+        self.save_hyperparameters()
 
         train_class = get_class(train_dataset.target_class)
         self.train_dataset = train_class(**train_dataset.kwargs)

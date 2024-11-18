@@ -34,7 +34,7 @@ class PointNetEncoder(nn.Module):
         out: embeddings; shape (batch size, no groups, embedding dim)
         """
         bs, g, n, _ = x.shape
-        x = x.rehsape(bs * g, n, 3)  # Each group is handled separately
+        x = x.reshape(bs * g, n, 3)  # Each group is handled separately
         features = self.conv1(x.transpose(2, 1))
         global_features = torch.max(features, dim=2, keepdim=True)[0]
         features = torch.cat([global_features.expand(-1, -1, n), features], dim=1)

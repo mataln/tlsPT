@@ -12,7 +12,8 @@ class UniformDownsample:
 
     def __call__(self, datapoint: dict) -> dict:
         points = datapoint["points"]
-        features = datapoint["features"]
+        if "features" in datapoint:
+            features = datapoint["features"]
 
         if self.replace != "as_req":
             idx = np.random.choice(
@@ -29,7 +30,8 @@ class UniformDownsample:
                 )
 
         datapoint["points"] = points[idx]
-        datapoint["features"] = features[idx]
+        if "features" in datapoint:
+            datapoint["features"] = features[idx]
 
         return datapoint
 
@@ -40,12 +42,14 @@ class FarthestPointSample:
 
     def __call__(self, datapoint: dict) -> dict:
         points = datapoint["points"].unsqueeze(0)
-        features = datapoint["features"]
+        if "features" in datapoint:
+            features = datapoint["features"]
 
         datapoint["points"], idx = sample_farthest_points(points, K=self.num_points)
         datapoint["points"] = datapoint["points"].squeeze(0)
         idx = idx.squeeze(0)
-        datapoint["features"] = features[idx]
+        if "features" in datapoint:
+            datapoint["features"] = features[idx]
 
         return datapoint
 

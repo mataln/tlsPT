@@ -19,7 +19,7 @@ from omegaconf import DictConfig
 
 @hydra.main(
     version_base="1.1",
-    config_path="configs/dev/toy_model_data/",
+    config_path="configs/dev/point_mae/",
     config_name="train.yaml",
 )
 def main(config: DictConfig):
@@ -29,7 +29,7 @@ def main(config: DictConfig):
         seed = 0
 
     logger.info(f"Training model with seed {seed}")
-    logger.info("Building dataset with seed {seed}")
+    logger.info(f"Building dataset with seed {seed}")
 
     random.seed(seed)
     np.random.seed(seed)
@@ -61,7 +61,7 @@ def main(config: DictConfig):
     yaml_str = omegaconf.OmegaConf.to_yaml(config)
     logger.debug(f"Config:\n{yaml_str}")
 
-    hydra.utils.instantiate(config.dataloader)
+    dataloader = hydra.utils.instantiate(config.dataloader)
 
     num_nodes = config.get("num_nodes", 1)
     strategy = config.get("strategy", "ddp")
@@ -81,6 +81,9 @@ def main(config: DictConfig):
         }
     )
 
+    model = hydra.utils.instantiate(config.model)
+    # model = torch.compile(model)
+
     trainer = pl.Trainer(
         num_nodes=num_nodes,
         strategy=strategy,
@@ -94,6 +97,8 @@ def main(config: DictConfig):
         check_val_every_n_epoch=check_val_every_n_epoch,
         num_sanity_val_steps=num_sanity_val_steps,
     )
+
+    trainer.fit(model, dataloader)
 
 
 if __name__ == "__main__":

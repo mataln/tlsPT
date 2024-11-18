@@ -2,24 +2,47 @@ from __future__ import annotations
 
 import lightning as L
 import torch
-from components import Group, MaskGenerator, PointNetEncoder, PositionEncoder
 from pytorch3d.loss import chamfer_distance
 from torch import nn
 
 from tlspt.models.transformer import TransformerDecoder, TransformerEncoder
 from tlspt.models.utils import get_masked, get_unmasked
 
+from .components import Group, MaskGenerator, PointNetEncoder, PositionEncoder
+
 
 class PointMAE(L.LightningModule):
     def __init__(
         self,
-        num_centers: int = X,
-        num_neighbors: int = X,
-        embedding_dim: int = X,
-        mask_ratio: float = X,
+        num_centers: int = 64,
+        num_neighbors: int = 32,
+        embedding_dim: int = 384,
+        mask_ratio: float = 0.6,
         mask_type: str = "random",
-        transencoder_config: dict = X,
-        transdecoder_config: dict = X,
+        transencoder_config: dict = {
+            "embed_dim": 384,
+            "depth": 12,
+            "num_heads": 6,
+            "mlp_ratio": 4.0,
+            "qkv_bias": False,
+            "qk_scale": None,
+            "drop_rate": 0.0,
+            "attn_drop_rate": 0.0,
+            "drop_path_rate": 0.1,
+        },
+        transdecoder_config: dict = {
+            "embed_dim": 384,
+            "depth": 4,
+            "num_heads": 6,
+            "mlp_ratio": 4.0,
+            "qkv_bias": False,
+            "qk_scale": None,
+            "drop_rate": 0.0,
+            "attn_drop_rate": 0.0,
+            "drop_path_rate": 0.1,
+            "norm_layer": nn.LayerNorm,
+        },
+        total_epochs: int = 300,
     ):
         super().__init__()
         self.num_centers = num_centers
@@ -27,9 +50,10 @@ class PointMAE(L.LightningModule):
         self.embedding_dim = embedding_dim
         self.mask_ratio = mask_ratio
         self.mask_type = mask_type
-        self.transformer_config = transencoder_config
-        self.trans_dim = transencoder_config["dim"]
-        if transdecoder_config["dim"] != transencoder_config["dim"]:
+        self.transencoder_config = transencoder_config
+        self.transdecoder_config = transdecoder_config
+        self.trans_dim = transencoder_config["embed_dim"]
+        if transdecoder_config["embed_dim"] != transencoder_config["embed_dim"]:
             raise ValueError("Encoder and decoder dimensions must match")
         self.transdecoder_config = transdecoder_config
         self.group = Group(
@@ -40,7 +64,7 @@ class PointMAE(L.LightningModule):
         self.mask_generator = MaskGenerator(
             mask_ratio=self.mask_ratio, mask_type=self.mask_type
         )
-        self.transformer_encoder = TransformerEncoder(**self.transformer_config)
+        self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
         self.norm = nn.LayerNorm(self.trans_dim)
         self.mask_token = nn.Parameter(torch.randn(1, 1, self.trans_dim))
         self.transformer_decoder = TransformerDecoder(**transdecoder_config)
@@ -49,6 +73,7 @@ class PointMAE(L.LightningModule):
             self.trans_dim, 3 * self.num_neighbors, 1
         )  # Num neighbors points per group.
         self.loss = chamfer_distance
+        self.total_epochs = total_epochs
 
     def reconstruct(
         self, x
@@ -77,7 +102,7 @@ class PointMAE(L.LightningModule):
         )  # Position embeddings for visible patches. (batch, [1-m]*centers, transformer_dim)
 
         # Feed visible patches and position embeddings to transformer
-        x_vis = self.transformer_encoder(x_vis, vis_pos_embeddings)
+        x_vis = self.transformer_encoder(vis_patch_embeddings, vis_pos_embeddings)
         x_vis = self.norm(x_vis)
 
         return x_vis, mask, vis_pos_embeddings
@@ -93,7 +118,7 @@ class PointMAE(L.LightningModule):
         return x_hat
 
     def forward(self, x):
-        patches, centers = self.group(x)
+        patches, centers = self.group(x["points"])
 
         # Encode visible
         x_vis, mask, vis_pos_embeddings = self.forward_encoder(
@@ -126,17 +151,38 @@ class PointMAE(L.LightningModule):
         x_hat = x_hat.reshape(B * M, N, 3)
         target = target.reshape(B * M, N, 3)
 
-        return self.loss(x_hat, target)
+        if self.loss == chamfer_distance:
+            loss = self.loss(x_hat, target)[0]
+        else:
+            raise NotImplementedError
+        return loss
 
     def training_step(self, batch, batch_idx):
         loss = self.forward(batch)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        loss = self.forward(batch)
+        self.log("val/loss", loss, on_step=True, on_epoch=True, logger=True)
 
     def test_step(self, batch, batch_idx):
         pass
 
+    def on_fit_start(self):
+        self.logger.experiment.log(self.hparams)
+
     def configure_optimizers(self):
-        pass
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
+        return optimizer
+        # total_epochs = 300
+        # warmup_epochs = 10
+
+        # def lr_lambda(current_epoch):
+        #     if current_epoch < warmup_epochs:
+        #         return float(current_epoch) / float(max(1, warmup_epochs))
+        #     else:
+        #         return 0.5 * (1 + math.cos(math.pi * (current_epoch - warmup_epochs) / (total_epochs - warmup_epochs)))
+
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        # return [optimizer], [{'scheduler': scheduler, 'interval': 'epoch', 'frequency': 1}]
