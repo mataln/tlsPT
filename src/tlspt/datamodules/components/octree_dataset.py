@@ -26,6 +26,7 @@ class OctreeDataset(BaseSiteDataset):
         features_to_normalize: list = ["red", "green", "blue"],
         normalize: bool = True,
         transform=None,
+        min_points: int = 512,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -48,10 +49,18 @@ class OctreeDataset(BaseSiteDataset):
         self.octrees = [FileOctree(f) for f in self.octree_files]
 
         # Work out which files need to be loaded
+        # 1. Nodes at correct scale
         self.nodes = [
             octree.find_nodes_by_scale(self.scale) for octree in self.octrees
         ]  # Each entry is a list of nodes for a plot
 
+        # 2. Filter by min_points
+        self.nodes = [
+            [node for node in plot_nodes if node.num_points >= min_points]
+            for plot_nodes in self.nodes
+        ]
+
+        # 3. Find leaf nodes under each node
         self.leaf_nodes = [
             [
                 self.octrees[i].find_leaves_under_node(node) for node in self.nodes[i]

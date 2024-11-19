@@ -18,13 +18,13 @@ class PointNetEncoder(nn.Module):
         self.conv1 = nn.Sequential(
             nn.Conv1d(3, 128, 1),
             nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv1d(128, 256, 1),
         )
         self.conv2 = nn.Sequential(
             nn.Conv1d(512, 512, 1),
             nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv1d(512, self.embedding_dim, 1),
         )
 

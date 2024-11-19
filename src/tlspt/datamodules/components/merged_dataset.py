@@ -15,10 +15,14 @@ class MergedOctreeDataset(Dataset):
         feature_names: list = None,
         features_to_normalize: list = ["red", "green", "blue"],
         normalize: bool = True,
+        min_points: list = None,  # Defaults to 512 each later
         transform=None,
     ):
         if len(split_files) != len(scales):
             raise ValueError("Split files and scales must have the same length")
+
+        if min_points is None:
+            min_points = [512] * len(split_files)
 
         self.datasets = [
             OctreeDataset(
@@ -29,6 +33,7 @@ class MergedOctreeDataset(Dataset):
                 features_to_normalize=features_to_normalize,
                 normalize=normalize,
                 transform=transform,
+                min_points=min_points[i],
             )
             for i in range(len(split_files))
         ]

@@ -159,12 +159,16 @@ class PointMAE(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.forward(batch)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, logger=True)
+        self.log(
+            "train/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss = self.forward(batch)
-        self.log("val/loss", loss, on_step=True, on_epoch=True, logger=True)
+        self.log(
+            "val/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
 
     def test_step(self, batch, batch_idx):
         pass
@@ -173,7 +177,7 @@ class PointMAE(L.LightningModule):
         self.logger.experiment.log(self.hparams)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.0001, weight_decay=0.05)
         return optimizer
         # total_epochs = 300
         # warmup_epochs = 10

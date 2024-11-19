@@ -11,6 +11,7 @@ import omegaconf
 import torch
 import wandb
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.profilers import AdvancedProfiler, SimpleProfiler
 
 # MixedPrecisionPlugin
 from loguru import logger
@@ -72,6 +73,20 @@ def main(config: DictConfig):
     log_every_n_steps = config.get("log_every_n_steps", 1)
     check_val_every_n_epoch = config.get("check_val_every_n_epoch", 1)
     num_sanity_val_steps = config.get("num_sanity_val_steps", 0)
+    profiler = config.get("profiler", None)
+
+    if profiler == "advanced":
+        logger.info("Using AdvancedProfiler")
+        profiler = AdvancedProfiler(
+            dirpath="/home/matt/work/tlsPT/profiler", filename="advancedprofiler"
+        )
+    elif profiler == "simple":
+        logger.info("Using SimpleProfiler")
+        profiler = SimpleProfiler(
+            dirpath="/home/matt/work/tlsPT/profiler", filename="simpleprofiler"
+        )
+    else:
+        logger.info("Not using profiler")
 
     wandb_logger.log_hyperparams(
         {
@@ -96,6 +111,7 @@ def main(config: DictConfig):
         limit_val_batches=limit_val_batches,
         check_val_every_n_epoch=check_val_every_n_epoch,
         num_sanity_val_steps=num_sanity_val_steps,
+        profiler=profiler,
     )
 
     trainer.fit(model, dataloader)

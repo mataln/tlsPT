@@ -4,11 +4,17 @@ wandb:
   mode: online
 experiment_name: test
 
-max_epochs: 2
+max_epochs: 1
+strategy: ddp
+profiler: advanced
+limit_train_batches: 0.5
+
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
-  num_workers: 8
-  batch_size: 16
+  num_workers: 0
+  prefetch_factor: null
+  persistent_workers: False
+  batch_size: 128
 
   train_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
@@ -19,6 +25,7 @@ dataloader:
         - '/home/matt/work/tlsPT/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: train
       scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
       feature_names: null
       normalize: True
       transform:
@@ -35,6 +42,7 @@ dataloader:
         - '/home/matt/work/tlsPT/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: val
       scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
       feature_names: null
       normalize: True
       transform:
@@ -51,6 +59,7 @@ dataloader:
         - '/home/matt/work/tlsPT/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: test
       scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
       feature_names: null
       normalize: True
       transform:
