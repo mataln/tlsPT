@@ -52,7 +52,7 @@ class Group(nn.Module):
         self,
         num_centers,
         num_neighbors,
-        neighbour_alg,
+        neighbor_alg,
         radius=None,
         normalize_group_distances=False,
     ):
@@ -61,11 +61,11 @@ class Group(nn.Module):
         self.num_neighbors = num_neighbors
         self.normalize_group_distances = normalize_group_distances
 
-        if neighbour_alg not in ["knn_points", "ball_query"]:
-            raise ValueError(f"Invalid neighbour algorithm: {neighbour_alg}")
-        self.neighbour_alg = neighbour_alg
+        if neighbor_alg not in ["knn_points", "ball_query"]:
+            raise ValueError(f"Invalid neighbor algorithm: {neighbor_alg}")
+        self.neighbor_alg = neighbor_alg
         self.radius = radius
-        if neighbour_alg == "ball_query" and radius is None:
+        if neighbor_alg == "ball_query" and radius is None:
             raise ValueError("Radius must be specified for ball query")
 
     def forward(self, points, lengths):
@@ -78,7 +78,7 @@ class Group(nn.Module):
         centers, center_idxs = sample_farthest_points(
             points=points, lengths=lengths, K=self.num_centers
         )  # (batch size, num centers, 3), (batch size, num centers)
-        if self.neighbour_alg == "knn_points":
+        if self.neighbor_alg == "knn_points":
             _, __, groups = knn_points(
                 p1=centers,
                 p2=points,
@@ -86,7 +86,7 @@ class Group(nn.Module):
                 K=self.num_neighbors,
                 return_nn=True,
             )  # (batch size, num centers, num neighbors, 3)
-        elif self.neighbour_alg == "ball_query":
+        elif self.neighbor_alg == "ball_query":
             _, __, groups = ball_query(
                 p1=centers,
                 p2=points,

@@ -65,3 +65,5 @@ dataloader:
 
 model:
   _target_: tlspt.models.pointmae.pointmae.PointMAE
+  neighbour_alg: ball_query
+  ball_radius: 0.2

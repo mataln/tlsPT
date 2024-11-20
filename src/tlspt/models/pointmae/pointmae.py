@@ -19,6 +19,8 @@ class PointMAE(L.LightningModule):
         embedding_dim: int = 384,
         mask_ratio: float = 0.6,
         mask_type: str = "random",
+        neighbor_alg: str = "ball_query",
+        ball_radius=None,
         transencoder_config: dict = {
             "embed_dim": 384,
             "depth": 12,
@@ -50,6 +52,8 @@ class PointMAE(L.LightningModule):
         self.embedding_dim = embedding_dim
         self.mask_ratio = mask_ratio
         self.mask_type = mask_type
+        self.neighbor_alg = neighbor_alg
+        self.ball_radius = ball_radius
         self.transencoder_config = transencoder_config
         self.transdecoder_config = transdecoder_config
         self.trans_dim = transencoder_config["embed_dim"]
@@ -57,7 +61,10 @@ class PointMAE(L.LightningModule):
             raise ValueError("Encoder and decoder dimensions must match")
         self.transdecoder_config = transdecoder_config
         self.group = Group(
-            num_centers=self.num_centers, num_neighbors=self.num_neighbors
+            num_centers=self.num_centers,
+            num_neighbors=self.num_neighbors,
+            neighbor_alg=self.neighbor_alg,
+            radius=self.ball_radius,
         )
         self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
         self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
