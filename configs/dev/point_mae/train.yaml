@@ -4,10 +4,9 @@ wandb:
   mode: online
 experiment_name: test
 
-max_epochs: 1
+max_epochs: 10
 strategy: ddp
 profiler: advanced
-limit_train_batches: 0.5
 
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
@@ -29,9 +28,8 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.TLSSampler
-        uniform_points: 8192
-        farthest_points: 1024
+        _target_: tlspt.transforms.UniformDownsample
+        num_points: 8192
 
   val_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
@@ -46,9 +44,8 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.TLSSampler
-        uniform_points: 8192
-        farthest_points: 1024
+        _target_: tlspt.transforms.UniformDownsample
+        num_points: 8192
 
   test_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
@@ -63,9 +60,8 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.TLSSampler
-        uniform_points: 8192
-        farthest_points: 1024
+        _target_: tlspt.transforms.UniformDownsample
+        num_points: 8192
 
 model:
   _target_: tlspt.models.pointmae.pointmae.PointMAE

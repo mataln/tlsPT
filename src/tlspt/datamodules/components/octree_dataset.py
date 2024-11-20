@@ -177,6 +177,8 @@ class OctreeDataset(BaseSiteDataset):
             else {"points": pc.points_packed()}
         )
 
+        datapoint["lengths"] = datapoint["points"].shape[0]
+
         if self.transform:
             datapoint = self.transform(datapoint)
 

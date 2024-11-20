@@ -118,7 +118,7 @@ class PointMAE(L.LightningModule):
         return x_hat
 
     def forward(self, x):
-        patches, centers = self.group(x["points"])
+        patches, centers = self.group(x["points"], x["lengths"])
 
         # Encode visible
         x_vis, mask, vis_pos_embeddings = self.forward_encoder(

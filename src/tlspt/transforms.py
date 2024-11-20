@@ -6,24 +6,32 @@ from torchvision.transforms import Compose
 
 
 class UniformDownsample:
-    def __init__(self, num_points, replace=False):
+    def __init__(self, num_points, replace="resample_as_req"):
         self.num_points = num_points
         self.replace = replace
 
     def __call__(self, datapoint: dict) -> dict:
-        points = datapoint["points"]
+        points = datapoint["points"]  # (n,3)
         if "features" in datapoint:
-            features = datapoint["features"]
+            features = datapoint["features"]  # (n,c)
 
-        if self.replace != "as_req":
+        # Other cases
+        if self.replace == False:  # Standard sampling
             idx = np.random.choice(
-                np.arange(points.shape[0]), self.num_points, replace=self.replace
+                np.arange(points.shape[0]), self.num_points, replace=False
             )
-        else:
-            if self.num_points > points.shape[0]:
-                idx = np.random.choice(
-                    np.arange(points.shape[0]), self.num_points, replace=True
-                )
+        elif self.replace == True:
+            raise ValueError("Replacement not supported for uniform downsampling.")
+        elif (
+            self.replace == "resample_as_req"
+        ):  # Replacement only if num_points > points.shape[0]
+            if (
+                self.num_points > points.shape[0]
+            ):  # Note - order is NOT random. Prevents ball query from picking an identical point twice rather than 2 different ones where available.
+                repeats = int(np.ceil(self.num_points / points.shape[0]))
+                idx = np.tile(np.random.permutation(points.shape[0]), repeats)[
+                    : self.num_points
+                ]
             else:
                 idx = np.random.choice(
                     np.arange(points.shape[0]), self.num_points, replace=False
@@ -32,6 +40,8 @@ class UniformDownsample:
         datapoint["points"] = points[idx]
         if "features" in datapoint:
             datapoint["features"] = features[idx]
+
+        datapoint["lengths"] = min(self.num_points, datapoint["lengths"])
 
         return datapoint
 
@@ -51,6 +61,8 @@ class FarthestPointSample:
         if "features" in datapoint:
             datapoint["features"] = features[idx]
 
+        datapoint["lengths"] = min(self.num_points, datapoint["lengths"])
+
         return datapoint
 
 
@@ -65,6 +77,8 @@ class TLSSampler:
                 FarthestPointSample(self.farthest),
             ]
         )
+
+        raise NotImplementedError("Temporarily disabled.")
 
     def __call__(self, datapoint: dict) -> dict:
         return self.transform(datapoint)

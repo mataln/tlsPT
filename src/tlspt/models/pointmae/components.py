@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from pytorch3d.ops import knn_points, sample_farthest_points
+from pytorch3d.ops import ball_query, knn_points, sample_farthest_points
 from torch import nn
 from torch.linalg import norm
 
@@ -48,24 +48,53 @@ class Group(nn.Module):
     Generates patches with FPS + KNN
     """
 
-    def __init__(self, num_centers, num_neighbors, normalize_group_distances=False):
+    def __init__(
+        self,
+        num_centers,
+        num_neighbors,
+        neighbour_alg,
+        radius=None,
+        normalize_group_distances=False,
+    ):
         super().__init__()
         self.num_centers = num_centers
         self.num_neighbors = num_neighbors
         self.normalize_group_distances = normalize_group_distances
 
-    def forward(self, x):
+        if neighbour_alg not in ["knn_points", "ball_query"]:
+            raise ValueError(f"Invalid neighbour algorithm: {neighbour_alg}")
+        self.neighbour_alg = neighbour_alg
+        self.radius = radius
+        if neighbour_alg == "ball_query" and radius is None:
+            raise ValueError("Radius must be specified for ball query")
+
+    def forward(self, points, lengths):
         """
-        x: points; shape (batch size, no points, 3)
+        points: points; shape (batch size, no points, 3)
+        lengths: number of points in each point cloud; shape (batch size)
         num_centers: number of centers to sample using fps
         num_neighbors: number of neighbors to accrue for each center with knn
         """
         centers, center_idxs = sample_farthest_points(
-            x, K=self.num_centers
+            points=points, lengths=lengths, K=self.num_centers
         )  # (batch size, num centers, 3), (batch size, num centers)
-        _, __, groups = knn_points(
-            centers, x, K=self.num_neighbors, return_nn=True
-        )  # (batch size, num centers, num neighbors, 3)
+        if self.neighbour_alg == "knn_points":
+            _, __, groups = knn_points(
+                p1=centers,
+                p2=points,
+                lengths2=lengths,
+                K=self.num_neighbors,
+                return_nn=True,
+            )  # (batch size, num centers, num neighbors, 3)
+        elif self.neighbour_alg == "ball_query":
+            _, __, groups = ball_query(
+                p1=centers,
+                p2=points,
+                lengths2=lengths,
+                K=self.num_neighbors,
+                radius=self.radius,
+                return_nn=True,
+            )  # (batch size, num centers, num neighbors, 3)
 
         groups = groups - centers.unsqueeze(2)  # Center about the centers
         if self.normalize_group_distances:
