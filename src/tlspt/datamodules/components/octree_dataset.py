@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+import h5py
 import numpy as np
 import torch
 
@@ -9,7 +10,7 @@ from tlspt.datamodules.components.base_site import BaseSiteDataset
 from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.file_octree import FileOctree
 from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
-from tlspt.utils import TlsNormalizer, get_hash
+from tlspt.utils import Hdf5Normalizer, TlsNormalizer, get_hash
 
 
 class OctreeDataset(BaseSiteDataset):
@@ -27,6 +28,7 @@ class OctreeDataset(BaseSiteDataset):
         normalize: bool = True,
         transform=None,
         min_points: int = 512,
+        plots_keep: list = None,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -41,6 +43,8 @@ class OctreeDataset(BaseSiteDataset):
         self.normalize = normalize
         self.scale = scale
         self.transform = transform
+        self.min_points = min_points
+        self.plots_keep = plots_keep
 
         super().__init__(split_file, split, self.site_name, "ply")
 
@@ -56,7 +60,7 @@ class OctreeDataset(BaseSiteDataset):
 
         # 2. Filter by min_points
         self.nodes = [
-            [node for node in plot_nodes if node.num_points >= min_points]
+            [node for node in plot_nodes if node.num_points >= self.min_points]
             for plot_nodes in self.nodes
         ]
 
@@ -77,11 +81,13 @@ class OctreeDataset(BaseSiteDataset):
                 for parent_node in self.leaf_nodes[i]
             ]
             for i in range(len(self.octrees))
-        ]
+        ]  # Size [num_plots][num nodes at scale][num leaves under node]
 
         self.files_to_load = []
         for plot_files in files_to_load:
-            self.files_to_load.extend(plot_files)
+            self.files_to_load.extend(
+                plot_files
+            )  # Size [num_files][num leaves under node]
 
         # Init TLS reader
         self.reader = TR()
@@ -127,7 +133,9 @@ class OctreeDataset(BaseSiteDataset):
                     f"Expected one json file in {folder}, found {len(json_files)}"
                 )
 
-            octree_files.append(os.path.join(folder, json_files[0]))
+            plot_name = os.path.split(json_files[0])[1].split(".")[0]
+            if self.plots_keep is None or plot_name in self.plots_keep:
+                octree_files.append(os.path.join(folder, json_files[0]))
 
         return octree_files
 
@@ -178,6 +186,150 @@ class OctreeDataset(BaseSiteDataset):
         )
 
         datapoint["lengths"] = datapoint["points"].shape[0]
+
+        if self.transform:
+            datapoint = self.transform(datapoint)
+
+        return datapoint
+
+    def __len__(self):
+        return len(self.files_to_load)
+
+
+class OctreeDatasetHdf5(OctreeDataset):
+    """
+    Dataset for octree based file storage. One octree per plot.
+    """
+
+    def __init__(
+        self,
+        split_file: str,
+        split: str,
+        scale: int,
+        idx_sampler,
+        feature_names: list = None,
+        features_to_normalize: list = ["red", "green", "blue"],
+        normalize: bool = True,
+        transform=None,
+        min_points: int = 512,
+        plots_keep: list = None,
+    ):
+        """
+        split_file: the csv file containing the split definitions
+                    columns: identifier, split
+                                09fas9f, train etc.
+        split: one of 'train', 'test', 'val'
+        """
+        super().__init__(
+            split_file,
+            split,
+            scale,
+            feature_names,
+            features_to_normalize,
+            normalize,
+            transform,
+            min_points,
+            plots_keep,
+        )
+        self.idx_sampler = idx_sampler
+
+        # self.leaf_nodes [num_plots][num nodes at scale][num leaves under node]
+        self.leaf_nodes_flattened = []
+        for plot_nodes in self.leaf_nodes:
+            self.leaf_nodes_flattened.extend(
+                plot_nodes
+            )  # Size [num_plots*num nodes at scale][num leaves under node]
+
+        files_to_load = [
+            [
+                [
+                    os.path.join(
+                        self.plot_folders[i], "voxels_hdf5", f"{leaf_node.id}.h5"
+                    )
+                    for leaf_node in parent_node
+                ]
+                for parent_node in self.leaf_nodes[i]
+            ]
+            for i in range(len(self.octrees))
+        ]
+
+        self.files_to_load = []
+        for plot_files in files_to_load:
+            self.files_to_load.extend(plot_files)
+
+        # Init normalizer
+        self.normalizer = Hdf5Normalizer(
+            self,
+            params={"features_to_normalize": features_to_normalize},
+            n_samples=1000,
+            out_dtype=torch.float32,
+        )
+
+    def load_item(self, idx):
+        """
+        loads an item without transforms
+        """
+        # List of h5 files
+        voxel_leaf_nodes = self.files_to_load[idx]
+        if len(voxel_leaf_nodes) != 1:
+            raise NotImplementedError(
+                f"Multi-voxel loading is not supported for Hdf5 files. Got {len(voxel_leaf_nodes)} files."
+            )
+        h5_file = voxel_leaf_nodes[0]
+
+        # Get the length of each file
+        # length = self.leaf_nodes_flattened[idx].num_points
+
+        # Load the h5 file
+        with h5py.File(h5_file, "r") as f:
+            points_dset = f["points"]
+            chunk_size = points_dset.chunks[0]
+            length = points_dset.shape[0]
+
+            # Sample
+            slices = self.idx_sampler(chunk_size, length)
+            points = []
+            for start_idx, end_idx in slices:
+                data_slice = points_dset[start_idx:end_idx]
+                points.append(data_slice)
+
+            features = None
+            if self.feature_names is not None:
+                features_dset = f["features"]
+                features = []
+                for start_idx, end_idx in slices:
+                    data_slice = features_dset[start_idx:end_idx]
+                    features.append(data_slice)
+
+            points = torch.as_tensor(np.concatenate(points, axis=0))
+            if features is not None:
+                features = torch.as_tensor(np.concatenate(features, axis=0))
+
+        return points, features
+
+    def __getitem__(self, idx):
+        """
+        loads an item from the dataset and normalizes it
+        """
+        points, features = self.load_item(idx)
+        scale = self.leaf_nodes_flattened[idx][0].scale
+
+        if self.feature_names is not None:  # Select features
+            feature_indices = [
+                self.feature_names.index(name) for name in self.feature_names
+            ]
+            features = features[:, feature_indices]
+
+        datapoint = (
+            {"points": points, "features": features, "lengths": points.shape[0]}
+            if features is not None
+            else {"points": points, "lengths": points.shape[0]}
+        )
+
+        if self.normalize:
+            if self.normalizer.mean is None and self.feature_names is not None:
+                raise ValueError("Normalizer not computed. Run prepare_data first.")
+            datapoint = self.normalizer.normalize(datapoint, scale)
 
         if self.transform:
             datapoint = self.transform(datapoint)

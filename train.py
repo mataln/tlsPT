@@ -21,13 +21,16 @@ from omegaconf import DictConfig
 @hydra.main(
     version_base="1.1",
     config_path="configs/dev/point_mae/",
-    config_name="train.yaml",
+    config_name="train_hdf5.yaml",
 )
 def main(config: DictConfig):
     if "seed" in config:
         seed = config.seed
     else:
         seed = 0
+
+    logger.remove()  # Remove the default handler
+    logger.add(sys.stdout, level="INFO")
 
     logger.info(f"Training model with seed {seed}")
     logger.info(f"Building dataset with seed {seed}")

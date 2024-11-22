@@ -112,6 +112,7 @@ dependencies = [ # Optional
   "loguru",
   "python-dotenv",
   "hydra-core",
+  "h5py"
   ]
 
 # List additional groups of dependencies here (e.g. development

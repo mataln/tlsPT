@@ -6,6 +6,8 @@ import os
 import pathlib
 from collections import deque
 
+import h5py
+import numpy as np
 import torch
 from loguru import logger
 from pytorch3d.io.utils import PathOrStr
@@ -122,8 +124,10 @@ class FileOctree:
             Loads an octree from a json file
             """
             with open(json_file) as f:
-                data = json.load(f)
-            return cls.from_dict(data)
+                json_data = json.load(f)
+                data = json_data["root"]
+                feature_names = json_data["feature_names"]
+            return cls.from_dict(data), feature_names
 
         @classmethod
         def from_dict(cls, data):
@@ -154,7 +158,7 @@ class FileOctree:
                     "min_scale must not be provided when initializing from folder"
                 )
             if isinstance(init_from, (str, pathlib.Path)):
-                self.root = self._OctreeNode.from_json(init_from)
+                self.root, self.feature_names = self._OctreeNode.from_json(init_from)
             else:
                 raise ValueError(f"Invalid init_from type {type(init_from)}")
         return
@@ -164,6 +168,7 @@ class FileOctree:
         pointclouds: TLSPointclouds | list[TLSPointclouds],
         out_folder: PathOrStr,
         insert_missing_features: bool = False,
+        use_hdf5: bool = False,
         **kwargs,
     ):
         """
@@ -182,7 +187,12 @@ class FileOctree:
 
         assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
 
-        reader = TR()
+        logger.info(f"Saving voxels to {out_folder}. HDF5: {use_hdf5}")
+        if use_hdf5:
+            logger.warning("Saving using HDF5. HDF5 files will not contain normals.")
+
+        if not use_hdf5:
+            reader = TR()
         queue = deque()
         queue.appendleft(self.root)
 
@@ -193,21 +203,47 @@ class FileOctree:
                     node.bbox.T
                 )  # Returns bool array over pointclouds
                 if torch.sum(points_in_voxel) > 0:
-                    data = TLSPointclouds(
-                        points=[pointclouds.points_packed()[points_in_voxel]],
-                        normals=[pointclouds.normals_packed()[points_in_voxel]]
-                        if pointclouds.normals_packed() is not None
-                        else None,
-                        features=[pointclouds.features_packed()[points_in_voxel]]
-                        if pointclouds.features_packed() is not None
-                        else None,
-                        feature_names=pointclouds._feature_names,
-                    )
-                    reader.save_pointcloud(
-                        data,
-                        os.path.join(out_folder, f"{node.id}.ply"),
-                        **kwargs,
-                    )
+                    if not use_hdf5:
+                        data = TLSPointclouds(
+                            points=[pointclouds.points_packed()[points_in_voxel]],
+                            normals=[pointclouds.normals_packed()[points_in_voxel]]
+                            if pointclouds.normals_packed() is not None
+                            else None,
+                            features=[pointclouds.features_packed()[points_in_voxel]]
+                            if pointclouds.features_packed() is not None
+                            else None,
+                            feature_names=pointclouds._feature_names,
+                        )
+                        reader.save_pointcloud(
+                            data,
+                            os.path.join(out_folder, f"{node.id}.ply"),
+                            binary=True,
+                            **kwargs,
+                        )
+                    else:
+                        data = {
+                            "points": pointclouds.points_packed()[
+                                points_in_voxel
+                            ].numpy(),
+                            "features": pointclouds.features_packed()[
+                                points_in_voxel
+                            ].numpy()
+                            if pointclouds.features_packed() is not None
+                            else None,
+                        }
+
+                        # Shuffle to avoid problems with chunked indexing
+                        if data["points"].shape[0] != data["features"].shape[0]:
+                            raise ValueError(
+                                "Number of points and features do not match. Something has gone very wrong elsewhere."
+                            )
+
+                        shuffled_idx = np.random.permutation(data["points"].shape[0])
+                        data["points"] = data["points"][shuffled_idx]
+                        if data["features"] is not None:
+                            data["features"] = data["features"][shuffled_idx]
+
+                        self.save_hdf5(data, os.path.join(out_folder, f"{node.id}.h5"))
             else:
                 queue.extendleft(node.children)
 
@@ -221,9 +257,37 @@ class FileOctree:
         out_file = os.path.join(out_folder, out_fname)
 
         with open(out_file, "w") as f:
-            json.dump(self.root.to_dict(), f, indent=4)
+            save_dict = {
+                "feature_names": self.feature_names,
+                "root": self.root.to_dict(),
+            }
+            json.dump(save_dict, f, indent=4)
 
         return
+
+    def save_hdf5(self, data, out_file, dtype=np.float32, chunk_size=1024):
+        """
+        Saves the data to an hdf5 file
+        """
+        chunk_size = min(chunk_size, data["points"].shape[0])
+        points_chunk_size = (chunk_size, 3)
+        feature_chunk_size = (
+            (chunk_size, data["features"].shape[1])
+            if data["features"] is not None
+            else None
+        )
+
+        with h5py.File(out_file, "w") as f:
+            f.create_dataset(
+                "points", data=data["points"].astype(dtype), chunks=points_chunk_size
+            )
+
+            if data["features"] is not None:
+                f.create_dataset(
+                    "features",
+                    data=data["features"].astype(dtype),
+                    chunks=feature_chunk_size,
+                )
 
     def find_nodes_by_scale(self, scale: int):
         """
@@ -278,6 +342,8 @@ class FileOctree:
 
         if len(pointclouds.points_list()[0]) == 0:
             raise ValueError("Passed empty pointclouds")
+
+        self.feature_names = pointclouds._feature_names
 
         # Get the bounding box
         bbox = pointclouds.get_bounding_boxes()[0]  # Shape 3,2 i.e [dimension, min/max]

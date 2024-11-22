@@ -2,7 +2,7 @@ wandb:
   project: tlspt_dev
   entity: mja2106
   mode: online
-experiment_name: test
+experiment_name: test_hdf5
 
 max_epochs: 4
 strategy: ddp
@@ -28,7 +28,11 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.UniformDownsample
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
         num_points: 8192
 
   val_dataset:
@@ -44,7 +48,11 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.UniformDownsample
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
         num_points: 8192
 
   test_dataset:
@@ -60,7 +68,11 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.UniformDownsample
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
         num_points: 8192
 
 model:
