@@ -164,21 +164,28 @@ class OctreeDataset(BaseSiteDataset):
 
         if n_workers == -1:
             n_workers = mp.cpu_count() - 4
-
         chunksize = len(args) // n_workers
         logger.info(f"Using chunksize of {chunksize} files across {n_workers} workers")
+
         try:
             with mp.Pool(n_workers) as pool:
-                results = list(
-                    tqdm(
-                        pool.imap(self._load_item, args, chunksize=chunksize),
-                        total=len(args),
-                    )
-                )
+                # Create the iterator
+                iterator = pool.imap(self._load_item, args, chunksize=chunksize)
+                results = []
+
+                # Process results one at a time to catch failures
+                for result in tqdm(iterator, total=len(args)):
+                    if result is None:
+                        raise RuntimeError("Worker failed to load item")
+                    results.append(result)
+
             self.data = results
             logger.info("Dataset loaded into memory")
+
         except Exception as e:
             logger.error(f"Error during parallel loading: {e}")
+            # Make sure to terminate the pool
+            pool.terminate()
             raise e
 
     def load_item(self, idx):

@@ -10,6 +10,7 @@ import numpy as np
 import omegaconf
 import torch
 import wandb
+from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.profilers import AdvancedProfiler, SimpleProfiler
 
@@ -99,6 +100,19 @@ def main(config: DictConfig):
         }
     )
 
+    # Val checkpoint callback
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=f"checkpoints/",
+        monitor="val/loss",
+        mode="min",
+        save_top_k=1,
+        save_last="link",
+        save_weights_only=False,
+        filename=f"best_model_{experiment_name}_{{epoch:02d}}_{{val/loss:.4f}}",
+        auto_insert_metric_name=False,
+    )
+    callbacks = [checkpoint_callback]
+
     model = hydra.utils.instantiate(config.model)
     # model = torch.compile(model)
 
@@ -109,6 +123,7 @@ def main(config: DictConfig):
         max_epochs=config.max_epochs,
         log_every_n_steps=log_every_n_steps,
         logger=wandb_logger,
+        callbacks=callbacks,
         limit_train_batches=limit_train_batches,
         limit_test_batches=limit_test_batches,
         limit_val_batches=limit_val_batches,
