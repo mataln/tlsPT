@@ -29,6 +29,6 @@ for site in "${sites[@]}"; do
 
     echo "Processing site: $site, Plot: $plot_name"
 
-    python scripts/single_trees_to_octree.py --hdf5 --input_folder "$input_folder" --output_folder "$output_folder" --octree-fname "$octree_fname" --min_scale 1.5
+    python scripts/single_trees_to_octree.py --input_folder "$input_folder" --output_folder "$output_folder" --octree-fname "$octree_fname" --min_scale 1.5
   done
 done

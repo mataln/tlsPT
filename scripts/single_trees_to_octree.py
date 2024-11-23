@@ -25,7 +25,7 @@ def main():
 
     input_folder = args.input_folder
     output_folder = args.output_folder
-    octree_fname = args.octree_fname
+    args.octree_fname
     min_scale = args.min_scale
 
     os.makedirs(output_folder, exist_ok=True)
@@ -57,7 +57,7 @@ def main():
     octree = FOctree(
         pointclouds, min_scale=min_scale
     )  # Scale of leaves will be in min_scale to 2*min_scale
-    octree.save(out_folder=output_folder, out_fname=octree_fname)
+    # octree.save(out_folder=output_folder, out_fname=octree_fname)
 
     out_folder = (
         os.path.join(output_folder, "voxels_hdf5")

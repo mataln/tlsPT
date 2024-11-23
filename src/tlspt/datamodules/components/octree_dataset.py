@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
 
 import h5py
 import numpy as np
 import torch
+from loguru import logger
+from progressbar import progressbar as pbar
 
 from tlspt.datamodules.components.base_site import BaseSiteDataset
 from tlspt.io.tls_reader import TLSReader as TR
@@ -29,6 +32,7 @@ class OctreeDataset(BaseSiteDataset):
         transform=None,
         min_points: int = 512,
         plots_keep: list = None,
+        in_memory: bool = False,
     ):
         """
         split_file: the csv file containing the split definitions
@@ -45,6 +49,7 @@ class OctreeDataset(BaseSiteDataset):
         self.transform = transform
         self.min_points = min_points
         self.plots_keep = plots_keep
+        self.in_memory = in_memory
 
         super().__init__(split_file, split, self.site_name, "ply")
 
@@ -100,6 +105,9 @@ class OctreeDataset(BaseSiteDataset):
             out_dtype=torch.float32,
         )
 
+        if self.in_memory:
+            self.load_all_data()
+
     def __str__(self):
         return (
             f"{self.__class__.__name__}({self.split_file}, {self.split}, {self.scale})"
@@ -139,6 +147,31 @@ class OctreeDataset(BaseSiteDataset):
 
         return octree_files
 
+    @staticmethod
+    def _load_item(args):
+        """
+        Wrapper for loading an item in parallel
+        """
+        dataset, idx = args
+        return dataset.load_item(idx)
+
+    def load_all_data(self, n_workers=24):
+        """
+        Preloads all data into memory
+        """
+        args = [(self, idx) for idx in range(len(self.files_to_load))]
+        try:
+            with mp.Pool(n_workers) as pool:
+                results = list(
+                    pbar(
+                        pool.imap(self._load_item, args),
+                    )
+                )
+            self.data = results
+        except Exception as e:
+            logger.error(f"Error during parallel loading: {e}")
+            raise e
+
     def load_item(self, idx):
         """
         loads an item without transforms
@@ -172,7 +205,10 @@ class OctreeDataset(BaseSiteDataset):
         """
         loads an item from the dataset and normalizes it
         """
-        pc = self.load_item(idx)
+        if self.in_memory:
+            pc = self.data[idx]
+        else:
+            pc = self.load_item(idx)
 
         if self.normalize:
             if self.normalizer.mean is None and self.feature_names is not None:

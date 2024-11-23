@@ -10,10 +10,11 @@ profiler: advanced
 
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
-  num_workers: 0
-  prefetch_factor: null
-  persistent_workers: False
-  batch_size: 128
+  num_workers: 24
+  prefetch_factor: 4
+  persistent_workers: True
+  pin_memory: True
+  batch_size: 64
 
   train_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
