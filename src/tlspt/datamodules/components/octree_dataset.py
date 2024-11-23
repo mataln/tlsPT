@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 import torch
 from loguru import logger
-from progressbar import progressbar as pbar
+from tqdm import tqdm
 
 from tlspt.datamodules.components.base_site import BaseSiteDataset
 from tlspt.io.tls_reader import TLSReader as TR
@@ -155,19 +155,28 @@ class OctreeDataset(BaseSiteDataset):
         dataset, idx = args
         return dataset.load_item(idx)
 
-    def load_all_data(self, n_workers=24):
+    def load_all_data(self, n_workers=4):
         """
         Preloads all data into memory
         """
+        logger.info("Loading dataset into memory")
         args = [(self, idx) for idx in range(len(self.files_to_load))]
+
+        if n_workers == -1:
+            n_workers = mp.cpu_count() - 4
+
+        chunksize = len(args) // n_workers
+        logger.info(f"Using chunksize of {chunksize} files across {n_workers} workers")
         try:
             with mp.Pool(n_workers) as pool:
                 results = list(
-                    pbar(
-                        pool.imap(self._load_item, args),
+                    tqdm(
+                        pool.imap(self._load_item, args, chunksize=chunksize),
+                        total=len(args),
                     )
                 )
             self.data = results
+            logger.info("Dataset loaded into memory")
         except Exception as e:
             logger.error(f"Error during parallel loading: {e}")
             raise e
