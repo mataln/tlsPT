@@ -66,6 +66,20 @@ def main(config: DictConfig):
     yaml_str = omegaconf.OmegaConf.to_yaml(config)
     logger.debug(f"Config:\n{yaml_str}")
 
+    if "num_workers_per_card" in config:
+        if "num_workers" in config.dataloader:
+            logger.warning(
+                "Overriding num_workers with num_workers_per_card * num_gpus"
+            )
+
+        num_workers_per_card = config.num_workers_per_card
+        num_gpus = torch.cuda.device_count()
+        logger.info(
+            f"Using {num_gpus} GPUs with {num_workers_per_card} workers per GPU"
+        )
+        config.dataloader.num_workers = num_workers_per_card * num_gpus
+        logger.info(f"Total workers: {config.dataloader.num_workers}")
+
     dataloader = hydra.utils.instantiate(config.dataloader)
 
     num_nodes = config.get("num_nodes", 1)
@@ -81,14 +95,10 @@ def main(config: DictConfig):
 
     if profiler == "advanced":
         logger.info("Using AdvancedProfiler")
-        profiler = AdvancedProfiler(
-            dirpath="/home/matt/work/tlsPT/profiler", filename="advancedprofiler"
-        )
+        profiler = AdvancedProfiler(dirpath="profiler/", filename="advancedprofiler")
     elif profiler == "simple":
         logger.info("Using SimpleProfiler")
-        profiler = SimpleProfiler(
-            dirpath="/home/matt/work/tlsPT/profiler", filename="simpleprofiler"
-        )
+        profiler = SimpleProfiler(dirpath="profiler/", filename="simpleprofiler")
     else:
         logger.info("Not using profiler")
 

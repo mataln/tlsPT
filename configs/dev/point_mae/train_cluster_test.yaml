@@ -8,9 +8,11 @@ max_epochs: 4
 strategy: ddp
 profiler: advanced
 
+workers_per_card: 24
+
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
-  num_workers: 24
+  num_workers: null
   prefetch_factor: 1
   persistent_workers: True
   pin_memory: True
