@@ -155,7 +155,7 @@ class OctreeDataset(BaseSiteDataset):
         dataset, idx = args
         return dataset.load_item(idx)
 
-    def load_all_data(self, n_workers=24):
+    def load_all_data(self, n_workers=8):
         """
         Preloads all data into memory
         """
