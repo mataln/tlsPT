@@ -20,8 +20,9 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: train
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]
@@ -35,8 +36,9 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: val
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]
@@ -50,8 +52,9 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: test
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]

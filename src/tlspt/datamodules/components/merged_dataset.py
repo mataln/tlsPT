@@ -19,12 +19,16 @@ class MergedOctreeDataset(Dataset):
         transform=None,
         hdf5: bool = False,
         idx_sampler=None,
+        in_memory: bool = False,
     ):
         if len(split_files) != len(scales):
             raise ValueError("Split files and scales must have the same length")
 
         if hdf5 and idx_sampler is None:
             raise ValueError("HDF5 requires an HDF5ChunkSampler")
+
+        if hdf5 and in_memory:
+            raise NotImplementedError("Preloading not supported for HDF5 datasets")
 
         if min_points is None:
             min_points = [512] * len(split_files)
@@ -55,6 +59,7 @@ class MergedOctreeDataset(Dataset):
                     normalize=normalize,
                     transform=transform,
                     min_points=min_points[i],
+                    in_memory=in_memory,
                 )
                 for i in range(len(split_files))
             ]

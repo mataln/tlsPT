@@ -29,12 +29,9 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.Padder
+        _target_: tlspt.transforms.UniformDownsample
         num_points: 8192
-      hdf5: True
-      idx_sampler:
-        _target_: tlspt.transforms.HDF5ChunkSampler
-        num_points: 8192
+      in_memory: True
 
   val_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
@@ -49,12 +46,9 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.Padder
+        _target_: tlspt.transforms.UniformDownsample
         num_points: 8192
-      hdf5: True
-      idx_sampler:
-        _target_: tlspt.transforms.HDF5ChunkSampler
-        num_points: 8192
+      in_memory: True
 
   test_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
@@ -69,12 +63,9 @@ dataloader:
       feature_names: null
       normalize: True
       transform:
-        _target_: tlspt.transforms.Padder
+        _target_: tlspt.transforms.UniformDownsample
         num_points: 8192
-      hdf5: True
-      idx_sampler:
-        _target_: tlspt.transforms.HDF5ChunkSampler
-        num_points: 8192
+      in_memory: True
 
 model:
   _target_: tlspt.models.pointmae.pointmae.PointMAE
