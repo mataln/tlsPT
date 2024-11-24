@@ -6,13 +6,12 @@ experiment_name: test_cluster
 
 max_epochs: 50
 strategy: ddp
-profiler: advanced
-
-workers_per_card: 24
+profiler: null
+checkpoint_dir: /home/mja78/rds/hpc-work/tlspt-checkpoints
 
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
-  num_workers: null
+  num_workers: 24
   prefetch_factor: 1
   persistent_workers: True
   pin_memory: True
@@ -70,4 +69,5 @@ model:
   _target_: tlspt.models.pointmae.pointmae_bool.PointMAE
   neighbor_alg: ball_query
   ball_radius: 0.2
+  total_epochs: ${max_epochs}
   warmup_epochs: 10

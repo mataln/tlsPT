@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+from datetime import datetime
 
 import hydra
 import lightning.pytorch as pl
@@ -51,7 +52,8 @@ def main(config: DictConfig):
 
     tags = config.tags if "tags" in config else []
 
-    experiment_name = f"{config.experiment_name}_{seed}"
+    start_time = start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    experiment_name = f"{config.experiment_name}_{seed}_{start_time}"
 
     wandb_logger = WandbLogger(
         name=experiment_name,
@@ -69,20 +71,6 @@ def main(config: DictConfig):
 
     yaml_str = omegaconf.OmegaConf.to_yaml(config)
     logger.debug(f"Config:\n{yaml_str}")
-
-    if "num_workers_per_card" in config:
-        if "num_workers" in config.dataloader:
-            logger.warning(
-                "Overriding num_workers with num_workers_per_card * num_gpus"
-            )
-
-        num_workers_per_card = config.num_workers_per_card
-        num_gpus = torch.cuda.device_count()
-        logger.info(
-            f"Using {num_gpus} GPUs with {num_workers_per_card} workers per GPU"
-        )
-        config.dataloader.num_workers = num_workers_per_card * num_gpus
-        logger.info(f"Total workers: {config.dataloader.num_workers}")
 
     dataloader = hydra.utils.instantiate(config.dataloader)
 
@@ -118,19 +106,21 @@ def main(config: DictConfig):
     )
 
     # Val checkpoint callback
+    checkpoint_dir = config.get("checkpoint_dir", "checkpoints/")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
     checkpoint_callback = ModelCheckpoint(
-        dirpath=f"checkpoints/",
+        dirpath=checkpoint_dir,
         monitor="val/loss",
         mode="min",
         save_top_k=1,
         save_last="link",
         save_weights_only=False,
-        filename=f"best_model_{experiment_name}_{{epoch:02d}}_{{val/loss:.4f}}",
+        filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
         auto_insert_metric_name=False,
     )
     callbacks = [checkpoint_callback]
 
-    config.model.total_epochs = config.max_epochs
     model = hydra.utils.instantiate(config.model)
     # model = torch.compile(model)
 
