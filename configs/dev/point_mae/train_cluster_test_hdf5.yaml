@@ -1,0 +1,79 @@
+wandb:
+  project: tlspt_dev
+  entity: mja2106
+  mode: online
+experiment_name: test_cluster
+
+max_epochs: 4
+strategy: ddp
+profiler: advanced
+
+dataloader:
+  _target_: tlspt.datamodules.single_datamodule.SingleDataModule
+  num_workers: 24
+  prefetch_factor: 2
+  persistent_workers: True
+  pin_memory: True
+  batch_size: 128
+
+  train_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files:
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+      split: train
+      scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
+      feature_names: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
+        num_points: 8192
+
+  val_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files:
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+      split: val
+      scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
+      feature_names: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
+        num_points: 8192
+
+  test_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files:
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+      split: test
+      scales: [1.5, 1.5, 1.5]
+      min_points: [512, 512, 512]
+      feature_names: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.Padder
+        num_points: 8192
+      hdf5: True
+      idx_sampler:
+        _target_: tlspt.transforms.HDF5ChunkSampler
+        num_points: 8192
+
+model:
+  _target_: tlspt.models.pointmae.pointmae.PointMAE
+  neighbor_alg: ball_query
+  ball_radius: 0.2
