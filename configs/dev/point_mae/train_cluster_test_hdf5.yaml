@@ -11,7 +11,7 @@ profiler: advanced
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
   num_workers: 24
-  prefetch_factor: 2
+  prefetch_factor: 1
   persistent_workers: True
   pin_memory: True
   batch_size: 128
@@ -20,8 +20,8 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: train
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]
@@ -39,8 +39,8 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: val
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]
@@ -58,8 +58,8 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '/home/matt/work/tlsPT/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '/home/mja78/rds/hpc-work/tlspt/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: test
       scales: [1.5, 1.5, 1.5]
       min_points: [512, 512, 512]

@@ -103,9 +103,6 @@ classifiers = [  # Optional
 # For an analysis of this field vs pip's requirements files see:
 # https://packaging.python.org/discussions/install-requires-vs-requirements/
 dependencies = [ # Optional
-  "torch==2.4.1",
-  "torchvision==0.19.1",
-  "lightning",
   "numpy<2.0.0",
   "progressbar2",
   "wandb",
@@ -114,6 +111,10 @@ dependencies = [ # Optional
   "hydra-core",
   "h5py"
   ]
+
+#"torch==2.4.1",
+#"torchvision==0.19.1",
+#"lightning",
 
 # List additional groups of dependencies here (e.g. development
 # dependencies). Users will be able to install these using the "extras"
