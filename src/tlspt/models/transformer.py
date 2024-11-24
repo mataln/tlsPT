@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import torch
 import torch.nn as nn
 
 from .drop import DropPath
@@ -150,10 +151,20 @@ class TransformerEncoder(nn.Module):
             ]
         )
 
-    def forward(self, x, pos):
-        for _, block in enumerate(self.blocks):
-            x = block(x + pos)
-        return x
+    def forward(self, x, pos, feature_blocks=None):
+        if feature_blocks is not None:
+            feature_list = []
+            for i, block in enumerate(self.blocks):
+                x = block(x + pos)
+                if i in feature_blocks:
+                    feature_list.append(x)
+            return x, torch.tensor(feature_list).to(
+                x.device
+            )  # x: (B, no. centers, transformer dim), feature_list: (no. blocks, B, no. centers, transformer dim)
+        else:
+            for _, block in enumerate(self.blocks):
+                x = block(x + pos)
+            return x
 
 
 class TransformerDecoder(nn.Module):

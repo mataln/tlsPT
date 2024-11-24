@@ -4,7 +4,7 @@ wandb:
   mode: online
 experiment_name: test_cluster
 
-max_epochs: 4
+max_epochs: 50
 strategy: ddp
 profiler: advanced
 
@@ -67,6 +67,7 @@ dataloader:
         num_points: 8192
 
 model:
-  _target_: tlspt.models.pointmae.pointmae.PointMAE
+  _target_: tlspt.models.pointmae.pointmae_bool.PointMAE
   neighbor_alg: ball_query
   ball_radius: 0.2
+  warmup_epochs: 10

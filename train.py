@@ -12,7 +12,11 @@ import torch
 import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.profilers import AdvancedProfiler, SimpleProfiler
+from lightning.pytorch.profilers import (
+    AdvancedProfiler,
+    PyTorchProfiler,
+    SimpleProfiler,
+)
 
 # MixedPrecisionPlugin
 from loguru import logger
@@ -22,7 +26,7 @@ from omegaconf import DictConfig
 @hydra.main(
     version_base="1.1",
     config_path="configs/dev/point_mae/",
-    config_name="train_hdf5.yaml",
+    config_name="train_bool.yaml",
 )
 def main(config: DictConfig):
     if "seed" in config:
@@ -99,6 +103,9 @@ def main(config: DictConfig):
     elif profiler == "simple":
         logger.info("Using SimpleProfiler")
         profiler = SimpleProfiler(dirpath="profiler/", filename="simpleprofiler")
+    elif profiler == "pytorch":
+        logger.info("Using PyTorch Profiler")
+        profiler = PyTorchProfiler()
     else:
         logger.info("Not using profiler")
 
@@ -123,6 +130,7 @@ def main(config: DictConfig):
     )
     callbacks = [checkpoint_callback]
 
+    config.model.total_epochs = config.max_epochs
     model = hydra.utils.instantiate(config.model)
     # model = torch.compile(model)
 

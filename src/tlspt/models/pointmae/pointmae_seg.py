@@ -2,23 +2,23 @@ from __future__ import annotations
 
 import lightning as L
 import torch
+from loguru import logger
 from pytorch3d.loss import chamfer_distance
 from torch import nn
 
-from tlspt.models.transformer import TransformerDecoder, TransformerEncoder
+from tlspt.models.transformer import TransformerEncoder
 from tlspt.models.utils import get_at_index
 
-from .components import Group, MaskGenerator, PointNetEncoder, PositionEncoder
+from .components import Group, PointNetEncoder, PositionEncoder
 
 
 class PointMAE(L.LightningModule):
     def __init__(
         self,
+        backbone=None,
         num_centers: int = 64,
         num_neighbors: int = 32,
         embedding_dim: int = 384,
-        mask_ratio: float = 0.6,
-        mask_type: str = "random",
         neighbor_alg: str = "ball_query",
         ball_radius=None,
         transencoder_config: dict = {
@@ -32,55 +32,49 @@ class PointMAE(L.LightningModule):
             "attn_drop_rate": 0.0,
             "drop_path_rate": 0.1,
         },
-        transdecoder_config: dict = {
-            "embed_dim": 384,
-            "depth": 4,
-            "num_heads": 6,
-            "mlp_ratio": 4.0,
-            "qkv_bias": False,
-            "qk_scale": None,
-            "drop_rate": 0.0,
-            "attn_drop_rate": 0.0,
-            "drop_path_rate": 0.1,
-            "norm_layer": nn.LayerNorm,
-        },
+        feature_blocks: list = [3, 7, 11],
         total_epochs: int = 300,
     ):
-        raise NotImplementedError("You've run the wrong model")
         super().__init__()
-        self.num_centers = num_centers
-        self.num_neighbors = num_neighbors
-        self.embedding_dim = embedding_dim
-        self.mask_ratio = mask_ratio
-        self.mask_type = mask_type
-        self.neighbor_alg = neighbor_alg
-        self.ball_radius = ball_radius
-        self.transencoder_config = transencoder_config
-        self.trans_dim = transencoder_config["embed_dim"]
-        if transdecoder_config["embed_dim"] != transencoder_config["embed_dim"]:
-            raise ValueError("Encoder and decoder dimensions must match")
-        self.transdecoder_config = transdecoder_config
-        self.group = Group(
-            num_centers=self.num_centers,
-            num_neighbors=self.num_neighbors,
-            neighbor_alg=self.neighbor_alg,
-            radius=self.ball_radius,
-        )
-        self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
-        self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
-        self.mask_generator = MaskGenerator(
-            mask_ratio=self.mask_ratio, mask_type=self.mask_type
-        )
-        self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
-        self.norm = nn.LayerNorm(self.trans_dim)
-        self.mask_token = nn.Parameter(torch.randn(1, 1, self.trans_dim))
-        self.transformer_decoder = TransformerDecoder(**transdecoder_config)
 
-        self.reconstructor = nn.Conv1d(
-            self.trans_dim, 3 * self.num_neighbors, 1
-        )  # Num neighbors points per group.
-        self.loss = chamfer_distance
+        if backbone is not None:  # Preload
+            logger.info(
+                "Loading model from pretrained backbone, other model parameters will be ignored"
+            )
+            self.num_centers = backbone.num_centers
+            self.num_neighbors = backbone.num_neighbors
+            self.embedding_dim = backbone.embedding_dim
+            self.neighbor_alg = backbone.neighbor_alg
+            self.ball_radius = backbone.ball_radius
+            self.transencoder_config = backbone.transencoder_config  ##
+            self.trans_dim = backbone.trans_dim  ##
+            self.group = backbone.group
+            self.pos_encoder = backbone.pos_encoder
+            self.patch_encoder = backbone.patch_encoder
+            self.transformer_encoder = backbone.transformer_encoder
+            self.norm = backbone.norm
+        else:
+            self.num_centers = num_centers
+            self.num_neighbors = num_neighbors
+            self.embedding_dim = embedding_dim
+            self.neighbor_alg = neighbor_alg
+            self.ball_radius = ball_radius
+            self.transencoder_config = transencoder_config
+            self.trans_dim = transencoder_config["embed_dim"]
+            self.group = Group(
+                num_centers=self.num_centers,
+                num_neighbors=self.num_neighbors,
+                neighbor_alg=self.neighbor_alg,
+                radius=self.ball_radius,
+            )
+            self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
+            self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
+            self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
+            self.norm = nn.LayerNorm(self.trans_dim)
+
+        self.loss = XX
         self.total_epochs = total_epochs
+        self.feature_blocks = feature_blocks
 
     def reconstruct(
         self, x
@@ -93,25 +87,20 @@ class PointMAE(L.LightningModule):
         return x
 
     def forward_encoder(self, patches, centers, unmasked_idx):
-        vis_centers = get_at_index(
-            centers, unmasked_idx
-        )  # Visible centers. (batch, [1-m]*centers, 3)
-        vis_patches = get_at_index(
-            patches, unmasked_idx
-        )  # Visible patches. (batch, [1-m]*centers, neighbors, 3)
-
-        vis_patch_embeddings = self.patch_encoder(
-            vis_patches
+        patch_embeddings = self.patch_encoder(
+            patches
         )  # Embeddings for visible patches. (batch, [1-m]*centers, embedding_dim)
-        vis_pos_embeddings = self.pos_encoder(
-            vis_centers
+        pos_embeddings = self.pos_encoder(
+            centers
         )  # Position embeddings for visible patches. (batch, [1-m]*centers, transformer_dim)
 
         # Feed visible patches and position embeddings to transformer
-        x_vis = self.transformer_encoder(vis_patch_embeddings, vis_pos_embeddings)
-        x_vis = self.norm(x_vis)
+        x, feature_tensor = self.transformer_encoder(
+            patch_embeddings, pos_embeddings, feature_blocks=self.feature_blocks
+        )
+        x = self.norm(x)
 
-        return x_vis, vis_pos_embeddings
+        return x, pos_embeddings, feature_tensor
 
     def forward_decoder(self, x, full_pos_embeddings, N):
         x_rec = self.transformer_decoder(
@@ -128,30 +117,12 @@ class PointMAE(L.LightningModule):
             x["points"], x["lengths"]
         )  # patches (batch, no centers, no neighbors, 3), centers (batch, no centers, 3)
 
-        masked_idx, unmasked_idx = self.mask_generator(
-            centers
-        )  # Generate mask from centers (batch, centers)
+        # Encode
+        x, pos_embeddings, feature_tensor = self.forward_encoder(
+            patches, centers
+        )  # x: (batch, centers, transformer_dim), pos_embeddings: (batch, centers, transformer_dim), feature_tensor: (no. blocks, B, no. centers, transformer dim)
 
-        # Encode visible
-        x_vis, vis_pos_embeddings = self.forward_encoder(
-            patches, centers, unmasked_idx
-        )  # x_vis: (batch, centers, transformer_dim), mask: (batch, centers)
-
-        masked_centers = get_at_index(
-            centers, masked_idx
-        )  # Masked centers. (batch, m*centers, 3)
-        masked_pos_embeddings = self.pos_encoder(
-            masked_centers
-        )  # batch, m*centers, transformer_dim
-
-        B, N, _ = masked_pos_embeddings.shape
-        mask_tokens = self.mask_token.expand(B, N, -1)
-
-        x_full = torch.cat((x_vis, mask_tokens), dim=1)
-        full_pos_embeddings = torch.cat(
-            (vis_pos_embeddings, masked_pos_embeddings), dim=1
-        )
-
+        # Decode
         x_hat = self.forward_decoder(
             x_full, full_pos_embeddings, N
         )  # Decode to patch embeddings w/ missing patches, (batch, no mask centers, no neighbors, 3)

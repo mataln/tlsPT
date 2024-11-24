@@ -31,3 +31,25 @@ def get_unmasked(x: torch.Tensor, idx: torch.Tensor):
     elif x.dim() == 3:
         B, C, D = x.shape
         return x[~idx].reshape(B, -1, D)
+
+
+def get_at_index(x: torch.Tensor, idx: torch.Tensor):
+    """
+    Selects points from x according to mask indices
+    x: (batch size, no centers, no neighbors, 3) OR (batch size, no centers, embedding dim)
+    idx: (batch size, K)
+    (Should also work on patch centers or embeddings)
+    """
+    device = x.device
+    idx = idx.to(device)
+
+    if x.dim() == 4:
+        B, C, N, D = x.shape
+        idx_expanded = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, N, D)
+        return torch.gather(x, 1, idx_expanded).to(device).contiguous()
+    elif x.dim() == 3:
+        B, C, D = x.shape
+        idx_expanded = idx.unsqueeze(-1).expand(-1, -1, D)
+        return torch.gather(x, 1, idx_expanded).to(device).contiguous()
+    else:
+        raise ValueError(f"Invalid dimension: {x.dim()}")

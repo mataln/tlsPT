@@ -2,17 +2,18 @@ wandb:
   project: tlspt_dev
   entity: mja2106
   mode: online
-experiment_name: test
+experiment_name: test_idxmask
 
-max_epochs: 4
+max_epochs: 1
 strategy: ddp
-profiler: advanced
+profiler: pytorch
 
 dataloader:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
-  num_workers: 0
-  prefetch_factor: null
-  persistent_workers: False
+  num_workers: 4
+  prefetch_factor: 1
+  persistent_workers: True
+  pin_memory: True
   batch_size: 128
 
   train_dataset:
@@ -64,6 +65,6 @@ dataloader:
         num_points: 8192
 
 model:
-  _target_: tlspt.models.pointmae.pointmae.PointMAE
+  _target_: tlspt.models.pointmae.pointmae_bool.PointMAE
   neighbor_alg: ball_query
   ball_radius: 0.2

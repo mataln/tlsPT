@@ -126,7 +126,7 @@ class PositionEncoder(nn.Module):
         return self.encoder(x)
 
 
-class MaskGenerator(nn.Module):
+class MaskGeneratorBool(nn.Module):
     """
     Produces binary tensor mask for groups/patches
     """
@@ -154,5 +154,39 @@ class MaskGenerator(nn.Module):
                 mask[i, perm[:num_masked]] = True
 
             return mask.to(x.device)
+
+        raise ValueError(f"Invalid mask type: {self.mask_type}")
+
+
+class MaskGenerator(nn.Module):
+    """
+    Produces indices for masked points
+    """
+
+    def __init__(self, mask_ratio, mask_type="random"):
+        super().__init__()
+        self.mask_ratio = mask_ratio
+        self.mask_type = mask_type
+
+    def forward(self, x):
+        """
+        x: centers; shape (batch size, no groups/centers, 3)
+        out: mask; shape (batch size, mask_ratio * no groups) #e.g. mask[voxel 1] is a tensor of indices of masked points
+        """
+        B, G, _ = x.shape
+        device = x.device
+
+        if self.mask_ratio == 0:
+            masked_idx = torch.empty(B, 0, dtype=torch.long, device=device)
+            unmasked_idx = torch.arange(G, device=device).unsqueeze(0).expand(B, -1)
+            return masked_idx, unmasked_idx
+
+        if self.mask_type == "random":
+            num_masked = int(self.mask_ratio * G)
+            G - num_masked
+            perm = torch.rand(B, G, device=device).argsort(dim=1)
+            masked_idx = perm[:, :num_masked]
+            unmasked_idx = perm[:, num_masked:]
+            return masked_idx, unmasked_idx
 
         raise ValueError(f"Invalid mask type: {self.mask_type}")
