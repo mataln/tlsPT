@@ -124,6 +124,8 @@ def main(config: DictConfig):
     model = hydra.utils.instantiate(config.model)
     # model = torch.compile(model)
 
+    matmul_precision = config.get("matmul_precision", "high")
+    torch.set_float32_matmul_precision(matmul_precision)
     trainer = pl.Trainer(
         num_nodes=num_nodes,
         strategy=strategy,

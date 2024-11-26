@@ -19,7 +19,7 @@ class UniformDownsample:
         # Other cases
         if self.replace == False:  # Standard sampling
             idx = np.random.choice(
-                np.arange(points.shape[0]), self.num_points, replace=False
+                points.shape[0], min(self.num_points, points.shape[0]), replace=False
             )
         elif self.replace == True:
             raise ValueError("Replacement not supported for uniform downsampling.")
@@ -190,3 +190,18 @@ class Padder:
             datapoint["features"] = features
 
         return datapoint
+
+
+class UniformTLSSampler:
+    def __init__(self, num_points):
+        self.num_points = num_points
+
+        self.transform = Compose(
+            [
+                UniformDownsample(self.num_points, replace=False),  # Changes lengths
+                Padder(self.num_points),  # Does not change lengths
+            ]
+        )
+
+    def __call__(self, datapoint: dict) -> dict:
+        return self.transform(datapoint)
