@@ -22,13 +22,12 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/____TEST.csv'
       split: train
-      scales: [1.5, 1.5, 1.5]
-      min_points: [512, 512, 512]
+      scales: [1.5]
+      min_points: [512]
       feature_names: null
+      features_to_normalize: null
       normalize: True
       transform:
         _target_: tlspt.transforms.UniformTLSSampler
@@ -38,13 +37,12 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/____TEST.csv'
       split: val
-      scales: [1.5, 1.5, 1.5]
-      min_points: [512, 512, 512]
+      scales: [1.5]
+      min_points: [512]
       feature_names: null
+      features_to_normalize: null
       normalize: True
       transform:
         _target_: tlspt.transforms.UniformTLSSampler
@@ -54,13 +52,12 @@ dataloader:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
     kwargs:
       split_files:
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/allen-spain-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
-        - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
+        - '${hydra:runtime.cwd}/data/plot_octrees/allen-spain/octrees/____TEST.csv'
       split: test
-      scales: [1.5, 1.5, 1.5]
-      min_points: [512, 512, 512]
+      scales: [1.5]
+      min_points: [512]
       feature_names: null
+      features_to_normalize: null
       normalize: True
       transform:
         _target_: tlspt.transforms.UniformTLSSampler
