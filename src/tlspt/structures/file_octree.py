@@ -196,6 +196,8 @@ class FileOctree:
         queue = deque()
         queue.appendleft(self.root)
 
+        num_saved = 0
+
         while queue:
             node = queue.pop()
             if node.is_leaf():
@@ -203,6 +205,7 @@ class FileOctree:
                     node.bbox.T
                 )  # Returns bool array over pointclouds
                 if torch.sum(points_in_voxel) > 0:
+                    num_saved += 1
                     if not use_hdf5:
                         data = TLSPointclouds(
                             points=[pointclouds.points_packed()[points_in_voxel]],
@@ -246,6 +249,8 @@ class FileOctree:
                         self.save_hdf5(data, os.path.join(out_folder, f"{node.id}.h5"))
             else:
                 queue.extendleft(node.children)
+
+        logger.info(f"Saved {num_saved} voxels")
 
     def save(self, out_folder: PathOrStr, out_fname: str):
         """
