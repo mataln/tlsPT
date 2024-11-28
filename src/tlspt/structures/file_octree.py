@@ -348,8 +348,24 @@ class FileOctree:
         # Get the bounding box
         bbox = pointclouds.get_bounding_boxes()[0]  # Shape 3,2 i.e [dimension, min/max]
         # Make square
-        bbox_size = torch.max(bbox[:, 1] - bbox[:, 0])
-        # Make new cubic bbox with 5cm padding
+        bbox_size = torch.max(bbox[:, 1] - bbox[:, 0])  # Maximum dimension
+        logger.info(f"Initial bbox size: {bbox_size}")
+
+        # Grow until slightly larger than next power of 2
+        def next_power_of_2(bbox_size):
+            """Returns the first power of 2 greater than bbox_size."""
+            if bbox_size < 1:
+                raise ValueError("bbox_size must be greater than 0.")
+            power = 1
+            while power < bbox_size:
+                power *= 2
+            return power
+
+        bbox_size = next_power_of_2(bbox_size) + 0.01
+
+        logger.info(f"Adjusted bbox size (before padding): {bbox_size}")
+
+        # Make new cubic. Use padding
         cubic_bbox = torch.zeros((3, 2))
         cubic_bbox[:, 0] = bbox[:, 0] - 0.05
         cubic_bbox[:, 1] = bbox[:, 0] + bbox_size + 0.05
