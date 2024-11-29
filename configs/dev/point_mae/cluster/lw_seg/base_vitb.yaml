@@ -26,7 +26,7 @@ dataloader:
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/seg_allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/seg_allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: train
-      scales: [1.5, 1.5, 1.5]
+      scales: [2.0, 2.0, 2.0]
       min_points: [512, 512, 512]
       feature_names: null
       normalize: True
@@ -42,7 +42,7 @@ dataloader:
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/seg_allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/seg_allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: val
-      scales: [1.5, 1.5, 1.5]
+      scales: [2.0, 2.0, 2.0]
       min_points: [512, 512, 512]
       feature_names: null
       normalize: True
@@ -58,7 +58,7 @@ dataloader:
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-finland/octrees/seg_allen-finland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
         - '${hydra:runtime.cwd}/data/plot_octrees/allen-poland/octrees/seg_allen-poland-plot_splits-tr0.7-val0.15-te0.15_seed0.csv'
       split: test
-      scales: [1.5, 1.5, 1.5]
+      scales: [2.0, 2.0, 2.0]
       min_points: [512, 512, 512]
       feature_names: null
       normalize: True
@@ -74,7 +74,7 @@ model:
   ball_radius: 0.1
   total_epochs: ${max_epochs}
   warmup_epochs: 10
-  num_centers: 128
+  num_centers: 196
   num_neighbors: 64
   embedding_dim: 768 #Width
   mask_ratio: 0.75
