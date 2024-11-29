@@ -205,7 +205,7 @@ class FileOctree:
         # Collect all leaf nodes
         logger.info("Collecting leaf nodes")
         leaf_nodes = self.collect_leaf_nodes(self.root)
-        logger.info(f"Found {len(leaf_nodes)} leaf nodes to process")
+        logger.info(f"Found {len(leaf_nodes)} voxels to process")
 
         # Move point data to GPU
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

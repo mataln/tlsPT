@@ -495,15 +495,19 @@ def _save_ply(
         )
 
     if remove is not None:
-        feature_idxs_to_remove = [
-            i for i, name in enumerate(feature_names) if name in remove
-        ]
-        verts_features = np.delete(verts_features, feature_idxs_to_remove, axis=1)
+        # feature_idxs_to_remove = [
+        #     i for i, name in enumerate(feature_names) if name in remove
+        # ]
+        # verts_features = np.delete(verts_features, feature_idxs_to_remove, axis=1)
         feature_names = [
             name
             for i, name in enumerate(feature_names)
-            if i not in feature_idxs_to_remove
+            # if i not in feature_idxs_to_remove
         ]
+
+    # Temporarily rename
+    if "truth" in feature_names:
+        feature_names[feature_names.index("truth")] = "scalar_truth"
 
     _write_ply_header(
         f,
@@ -531,9 +535,9 @@ def _save_ply(
     if verts_features is not None:
         if color_idxs:
             verts_dtype.append(("colors", color_np_type, 3))
-            verts_dtype.append(("features", np.float32, verts_features.shape[1] - 3))
+            verts_dtype.append(("features", np.float32, (verts_features.shape[1] - 3,)))
         else:
-            verts_dtype.append(("features", np.float32, verts_features.shape[1]))
+            verts_dtype.append(("features", np.float32, (verts_features.shape[1],)))
 
     vert_data = np.zeros(verts.shape[0], dtype=verts_dtype)
     vert_data["verts"] = verts.detach().cpu().numpy()
