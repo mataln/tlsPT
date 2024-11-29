@@ -9,7 +9,7 @@ from loguru import logger
 
 # from pytorch3d.io import IO
 from tlspt.io.tls_reader import TLSReader as TR
-from tlspt.structures.file_octree import FileOctree as FOctree
+from tlspt.structures.file_octree_parallel import FileOctree as FOctree
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
 
     input_folder = args.input_folder
     output_folder = args.output_folder
-    args.octree_fname
+    octree_fname = args.octree_fname
     min_scale = args.min_scale
 
     os.makedirs(output_folder, exist_ok=True)
@@ -54,10 +54,12 @@ def main():
     logger.info(f"Failed to read {failed} point clouds")
     # pointclouds = [read(file) for file in ply_files]
 
+    logger.info("Creating octree")
     octree = FOctree(
         pointclouds, min_scale=min_scale
     )  # Scale of leaves will be in min_scale to 2*min_scale
-    # octree.save(out_folder=output_folder, out_fname=octree_fname)
+    octree.save(out_folder=output_folder, out_fname=octree_fname)
+    logger.info(f"Octree saved to {output_folder}")
 
     out_folder = (
         os.path.join(output_folder, "voxels_hdf5")

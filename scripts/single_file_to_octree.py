@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 
 from loguru import logger
 
 # from pytorch3d.io import IO
 from tlspt.io.tls_reader import TLSReader as TR
-from tlspt.structures.file_octree import FileOctree as FOctree
+from tlspt.structures.file_octree_parallel import FileOctree as FOctree
 
 
 def main():
@@ -58,10 +59,12 @@ def main():
     # pointclouds = [read(file) for file in ply_files]
 
     logger.info("Creating octree")
+    start = time.time()
     octree = FOctree(
         pointclouds, min_scale=min_scale
     )  # Scale of leaves will be in min_scale to 2*min_scale
     octree.save(out_folder=output_folder, out_fname=octree_fname)
+    print(f"Time taken: {time.time() - start}")
 
     logger.info("Saving octree voxels")
     out_folder = (

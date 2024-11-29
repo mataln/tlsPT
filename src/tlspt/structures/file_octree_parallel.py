@@ -5,7 +5,6 @@ import json
 import os
 import pathlib
 from collections import deque
-from multiprocessing import Pool, cpu_count
 
 import h5py
 import numpy as np
@@ -15,45 +14,6 @@ from pytorch3d.io.utils import PathOrStr
 
 from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
-
-
-def _split_node_task(node_data: dict) -> list[dict]:
-    """
-    Parallel worker function that processes a node's split
-    Returns data for children nodes
-    """
-    bbox = node_data["bbox"]
-    points = node_data["points"]
-
-    # Calculate midpoint once
-    mid = (bbox[:, 0] + bbox[:, 1]) / 2
-    children_data = []
-
-    # Process all potential children
-    for i in range(8):
-        axes = torch.arange(3)
-        bits = ((i >> axes) & 1).to(bbox.dtype)
-
-        # Calculate child bbox
-        child_bbox_min = bbox[:, 0] * (1 - bits) + mid * bits
-        child_bbox_max = mid * (1 - bits) + bbox[:, 1] * bits
-        child_bbox = torch.stack([child_bbox_min, child_bbox_max], dim=1)
-
-        # Check points in child bbox
-        mins = child_bbox[:, 0].unsqueeze(0)
-        maxs = child_bbox[:, 1].unsqueeze(0)
-        in_bounds = ((points >= mins) & (points <= maxs)).all(dim=1)
-        points_in_child = points[in_bounds]
-
-        if len(points_in_child) > 0:
-            child_data = {
-                "bbox": child_bbox,
-                "points": points_in_child,
-                "num_points": len(points_in_child),
-            }
-            children_data.append(child_data)
-
-    return children_data
 
 
 class FileOctree:
@@ -185,18 +145,14 @@ class FileOctree:
         self,
         init_from: TLSPointclouds | list | PathOrStr,
         min_scale: int | None = None,
-        num_processes: int | None = None,
     ):  # Loads a file octree from a folder or initializes an empty one
-        self.num_processes = num_processes
         if isinstance(init_from, TLSPointclouds) or isinstance(init_from, list):
             logger.info("Building octree from pointclouds")
             if min_scale is None:
                 raise ValueError(
                     "min_scale must be provided when initializing from pointclouds"
                 )
-            self.build_from_pointcloud_parallel(
-                init_from, min_scale, self.num_processes
-            )
+            self.build_from_pointcloud_gpu(init_from, min_scale)
         else:
             logger.info(f"Initializing octree from {type(init_from)} {init_from}")
             if min_scale is not None:
@@ -209,94 +165,111 @@ class FileOctree:
                 raise ValueError(f"Invalid init_from type {type(init_from)}")
         return
 
-    def save_voxels(
-        self,
-        pointclouds: TLSPointclouds | list[TLSPointclouds],
-        out_folder: PathOrStr,
-        insert_missing_features: bool = False,
-        use_hdf5: bool = False,
-        **kwargs,
-    ):
-        """
-        Voxelizes pointclouds according to the octree and saves them to out_folder
-        """
-        if (
-            isinstance(pointclouds, TLSPointclouds)
-            and len(pointclouds.points_list()) > 1
-        ) or (isinstance(pointclouds, list)):
-            logger.warning(
-                "Building octree from multiple clouds. Check they are from the same scene"
-            )
-            pointclouds = join_pointclouds_as_scene(
-                pointclouds, insert_missing_features
-            )
-
-        assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
-
-        logger.info(f"Saving voxels to {out_folder}. HDF5: {use_hdf5}")
-        if use_hdf5:
-            logger.warning("Saving using HDF5. HDF5 files will not contain normals.")
-
-        if not use_hdf5:
-            reader = TR()
-        queue = deque()
-        queue.appendleft(self.root)
-
-        num_saved = 0
+    def collect_leaf_nodes(self, root: _OctreeNode) -> list[tuple[torch.Tensor, str]]:
+        """Collect all leaf nodes' bboxes and IDs from the octree"""
+        leaf_data = []
+        queue = deque([root])
 
         while queue:
             node = queue.pop()
             if node.is_leaf():
-                points_in_voxel = pointclouds.inside_box(
-                    node.bbox.T
-                )  # Returns bool array over pointclouds
-                if torch.sum(points_in_voxel) > 0:
-                    num_saved += 1
-                    if not use_hdf5:
-                        data = TLSPointclouds(
-                            points=[pointclouds.points_packed()[points_in_voxel]],
-                            normals=[pointclouds.normals_packed()[points_in_voxel]]
-                            if pointclouds.normals_packed() is not None
-                            else None,
-                            features=[pointclouds.features_packed()[points_in_voxel]]
-                            if pointclouds.features_packed() is not None
-                            else None,
-                            feature_names=pointclouds._feature_names,
-                        )
-                        reader.save_pointcloud(
-                            data,
-                            os.path.join(out_folder, f"{node.id}.ply"),
-                            binary=True,
-                            **kwargs,
-                        )
-                    else:
-                        data = {
-                            "points": pointclouds.points_packed()[
-                                points_in_voxel
-                            ].numpy(),
-                            "features": pointclouds.features_packed()[
-                                points_in_voxel
-                            ].numpy()
-                            if pointclouds.features_packed() is not None
-                            else None,
-                        }
-
-                        # Shuffle to avoid problems with chunked indexing
-                        if data["points"].shape[0] != data["features"].shape[0]:
-                            raise ValueError(
-                                "Number of points and features do not match. Something has gone very wrong elsewhere."
-                            )
-
-                        shuffled_idx = np.random.permutation(data["points"].shape[0])
-                        data["points"] = data["points"][shuffled_idx]
-                        if data["features"] is not None:
-                            data["features"] = data["features"][shuffled_idx]
-
-                        self.save_hdf5(data, os.path.join(out_folder, f"{node.id}.h5"))
+                leaf_data.append((node.bbox, node.id))
             else:
                 queue.extendleft(node.children)
 
-        logger.info(f"Saved {num_saved} voxels")
+        return leaf_data
+
+    def save_voxels(
+        self,
+        pointclouds: TLSPointclouds,
+        out_folder: PathOrStr,
+        insert_missing_features: bool = True,
+        **kwargs,
+    ):
+        """
+        GPU-accelerated partitioning with sequential saving
+        """
+        if isinstance(pointclouds, list) or (
+            isinstance(pointclouds, TLSPointclouds)
+            and len(pointclouds.points_list()) > 1
+        ):
+            logger.warning(
+                "Building octree from multiple clouds. Check they are from the same scene"
+            )
+            pointclouds = join_pointclouds_as_scene(
+                pointclouds, insert_missing_features=insert_missing_features
+            )
+
+        assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
+
+        # Collect all leaf nodes
+        logger.info("Collecting leaf nodes")
+        leaf_nodes = self.collect_leaf_nodes(self.root)
+        logger.info(f"Found {len(leaf_nodes)} leaf nodes to process")
+
+        # Move point data to GPU
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
+
+        points = pointclouds.points_packed().to(device)
+        normals = (
+            pointclouds.normals_packed().to(device)
+            if pointclouds.normals_packed() is not None
+            else None
+        )
+        features = (
+            pointclouds.features_packed().to(device)
+            if pointclouds.features_packed() is not None
+            else None
+        )
+
+        # Ensure output directory exists
+        os.makedirs(out_folder, exist_ok=True)
+
+        # Create single reader instance
+        reader = TR()
+        num_saved = 0
+
+        logger.info("Partitioning and saving voxels")
+        for bbox, node_id in leaf_nodes:
+            bbox_gpu = bbox.to(device)
+
+            # Vectorized bounds check on GPU
+            mins = bbox_gpu[:, 0].unsqueeze(0)
+            maxs = bbox_gpu[:, 1].unsqueeze(0)
+            in_bounds = ((points >= mins) & (points <= maxs)).all(dim=1)
+
+            if torch.any(in_bounds):
+                # Get points for this voxel
+                voxel_points = points[in_bounds].cpu()
+                voxel_normals = (
+                    normals[in_bounds].cpu() if normals is not None else None
+                )
+                voxel_features = (
+                    features[in_bounds].cpu() if features is not None else None
+                )
+
+                # Create TLSPointclouds object
+                data = TLSPointclouds(
+                    points=[voxel_points],
+                    normals=[voxel_normals] if voxel_normals is not None else None,
+                    features=[voxel_features] if voxel_features is not None else None,
+                    feature_names=pointclouds._feature_names,
+                )
+
+                # Save to file
+                out_path = os.path.join(out_folder, f"{node_id}.ply")
+                reader.save_pointcloud(data, out_path, binary=True)
+
+                num_saved += 1
+                if num_saved % 100 == 0:
+                    logger.info(f"Saved {num_saved} voxels")
+
+        # Clean up GPU memory
+        del points, normals, features
+        torch.cuda.empty_cache()
+
+        logger.info(f"Successfully saved {num_saved} voxels")
 
     def save(self, out_folder: PathOrStr, out_fname: str):
         """
@@ -370,55 +343,91 @@ class FileOctree:
                 queue.extendleft(node.children)
         return leaves
 
-
-def build_from_pointcloud_parallel(
-    self,
-    pointclouds: TLSPointclouds,
-    min_scale: float = 1.0,
-    num_processes: int | None = None,
-):
-    """
-    Builds the octree from pointclouds using parallel processing
-    """
-    if num_processes is None:
-        num_processes = max(1, cpu_count() - 1)
-
-    if isinstance(pointclouds, list) or (
-        isinstance(pointclouds, TLSPointclouds) and len(pointclouds.points_list()) > 1
+    def build_from_pointcloud_gpu(
+        self, pointclouds: TLSPointclouds, min_scale: float = 1.0
     ):
-        logger.warning(
-            "Building octree from multiple clouds. Check they are from the same scene"
-        )
-        pointclouds = join_pointclouds_as_scene(
-            pointclouds, insert_missing_features=True
-        )
+        """
+        Builds the octree using GPU acceleration for point operations
+        """
+        if isinstance(pointclouds, list) or (
+            isinstance(pointclouds, TLSPointclouds)
+            and len(pointclouds.points_list()) > 1
+        ):
+            logger.warning(
+                "Building octree from multiple clouds. Check they are from the same scene"
+            )
+            pointclouds = join_pointclouds_as_scene(
+                pointclouds, insert_missing_features=True
+            )
 
-    assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
+        assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
 
-    if len(pointclouds.points_list()[0]) == 0:
-        raise ValueError("Passed empty pointclouds")
+        if len(pointclouds.points_list()[0]) == 0:
+            raise ValueError("Passed empty pointclouds")
 
-    self.feature_names = pointclouds._feature_names
-    points = pointclouds.points_list()[0]
-    bbox = pointclouds.get_bounding_boxes()[0]
-    bbox_size = torch.max(bbox[:, 1] - bbox[:, 0])
+        self.feature_names = pointclouds._feature_names
+        points = pointclouds.points_list()[0]
 
-    # Grow until slightly larger than next power of 2
-    power = 1
-    while power < bbox_size:
-        power *= 2
-    bbox_size = power + 0.01
+        # Move points to GPU
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        points = points.to(device)
 
-    cubic_bbox = torch.zeros((3, 2))
-    cubic_bbox[:, 0] = bbox[:, 0] - 0.05
-    cubic_bbox[:, 1] = bbox[:, 0] + bbox_size + 0.05
+        # Initial bbox calculation
+        bbox = pointclouds.get_bounding_boxes()[0]
+        bbox_size = torch.max(bbox[:, 1] - bbox[:, 0])
 
-    # Create root node and count its points
-    self.root = self._OctreeNode(cubic_bbox)
-    self.root.count_points(pointclouds)
+        # Grow until slightly larger than next power of 2
+        power = 1
+        while power < bbox_size:
+            power *= 2
+        bbox_size = power + 0.01
 
-    # Process levels in parallel
-    with Pool(processes=num_processes) as pool:
+        cubic_bbox = torch.zeros((3, 2))
+        cubic_bbox[:, 0] = bbox[:, 0] - 0.05
+        cubic_bbox[:, 1] = bbox[:, 0] + bbox_size + 0.05
+        cubic_bbox = cubic_bbox.to(device)
+
+        # Create root node
+        self.root = self._OctreeNode(
+            cubic_bbox.cpu()
+        )  # Node stays on CPU but keeps GPU data reference
+        self.root.num_points = len(points)
+
+        def split_node_gpu(node_bbox: torch.Tensor, points: torch.Tensor) -> list[dict]:
+            """Inner function to split a node using GPU operations"""
+            mid = (node_bbox[:, 0] + node_bbox[:, 1]) / 2
+
+            # Pre-calculate point positions relative to midpoint
+            points_relative = points > mid.unsqueeze(0)  # shape: [N, 3]
+
+            children_data = []
+            # Process all potential children
+            for i in range(8):
+                bits = torch.tensor(
+                    [(i >> j) & 1 for j in range(3)], dtype=torch.bool, device=device
+                )
+
+                # Points in this child are those that match the bit pattern
+                matches = points_relative == bits.unsqueeze(0)
+                in_bounds = matches.all(dim=1)
+                points_in_child = points[in_bounds]
+
+                if len(points_in_child) > 0:
+                    # Calculate bbox for child
+                    child_bbox_min = torch.where(bits, mid, node_bbox[:, 0])
+                    child_bbox_max = torch.where(bits, node_bbox[:, 1], mid)
+                    child_bbox = torch.stack([child_bbox_min, child_bbox_max], dim=1)
+
+                    child_data = {
+                        "bbox": child_bbox,
+                        "points": points_in_child,
+                        "num_points": len(points_in_child),
+                    }
+                    children_data.append(child_data)
+
+            return children_data
+
+        # Process levels
         current_level = [{"bbox": cubic_bbox, "points": points, "node": self.root}]
 
         while current_level:
@@ -431,23 +440,22 @@ def build_from_pointcloud_parallel(
             if not nodes_to_split:
                 break
 
-            # Prepare data for parallel processing
-            split_args = [
-                {"bbox": data["bbox"], "points": data["points"]}
-                for data in nodes_to_split
-            ]
-
-            # Split nodes in parallel
-            results = pool.map(_split_node_task, split_args)
-
-            # Process results and update tree
             next_level = []
-            for parent_data, children_data in zip(nodes_to_split, results):
-                parent_node = parent_data["node"]
-                if children_data:  # if split was successful
+            logger.info(f"Processing {len(nodes_to_split)} nodes")
+
+            # Process each node in the current level
+            for parent_data in nodes_to_split:
+                children_data = split_node_gpu(
+                    parent_data["bbox"], parent_data["points"]
+                )
+
+                if children_data:
+                    parent_node = parent_data["node"]
                     parent_node.children = []
+
                     for child_data in children_data:
-                        child_node = self._OctreeNode(child_data["bbox"])
+                        # Move bbox back to CPU for the node object
+                        child_node = self._OctreeNode(child_data["bbox"].cpu())
                         child_node.num_points = child_data["num_points"]
                         parent_node.children.append(child_node)
 
@@ -463,5 +471,8 @@ def build_from_pointcloud_parallel(
             current_level = next_level
             if current_level:
                 logger.info(
-                    f"Processing {len(current_level)} nodes at scale {current_level[0]['node'].scale}"
+                    f"Next level has {len(current_level)} nodes at scale {current_level[0]['node'].scale}"
                 )
+
+        # Clean up GPU memory
+        torch.cuda.empty_cache()
