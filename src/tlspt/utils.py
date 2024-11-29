@@ -116,12 +116,12 @@ class TlsNormalizer:
         )
         logger.info(f"3 channels will be zero centered and scaled to [-1,1].")
 
-    def normalize(self, x):
+    def normalize(self, x, scale):
         points = x.points_packed()
         features = x.features_packed()
 
         points = points - points.mean(dim=0)
-        points /= points.abs().max()
+        points /= scale
 
         if self.dataset.feature_names is None:
             return TLSPointclouds(points=points.unsqueeze(0), features=None)
