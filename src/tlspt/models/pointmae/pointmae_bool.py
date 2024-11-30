@@ -23,7 +23,8 @@ class PointMAE(L.LightningModule):
         mask_ratio: float = 0.6,
         mask_type: str = "random",
         neighbor_alg: str = "ball_query",
-        ball_radius=None,
+        ball_radius: float = None,
+        scale: float = None,
         transencoder_config: dict = {
             "embed_dim": 384,
             "depth": 12,
@@ -58,6 +59,7 @@ class PointMAE(L.LightningModule):
         self.mask_type = mask_type
         self.neighbor_alg = neighbor_alg
         self.ball_radius = ball_radius
+        self.scale = scale
         self.transencoder_config = transencoder_config
         self.transdecoder_config = transdecoder_config
         self.trans_dim = transencoder_config["embed_dim"]
@@ -68,7 +70,7 @@ class PointMAE(L.LightningModule):
             num_centers=self.num_centers,
             num_neighbors=self.num_neighbors,
             neighbor_alg=self.neighbor_alg,
-            radius=self.ball_radius,
+            radius=self.ball_radius / self.scale,
         )
         self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
         self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)

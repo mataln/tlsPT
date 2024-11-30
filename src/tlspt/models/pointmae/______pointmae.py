@@ -20,7 +20,8 @@ class PointMAE(L.LightningModule):
         mask_ratio: float = 0.6,
         mask_type: str = "random",
         neighbor_alg: str = "ball_query",
-        ball_radius=None,
+        ball_radius: float = None,
+        scale: float = None,
         transencoder_config: dict = {
             "embed_dim": 384,
             "depth": 12,

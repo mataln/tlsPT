@@ -17,7 +17,7 @@ from .components import (
 )
 
 
-class PointMAE(L.LightningModule):
+class PointMAESegmentation(L.LightningModule):
     def __init__(
         self,
         backbone=None,
@@ -25,7 +25,8 @@ class PointMAE(L.LightningModule):
         num_neighbors: int = 32,
         embedding_dim: int = 384,
         neighbor_alg: str = "ball_query",
-        ball_radius=None,
+        ball_radius: float = None,
+        scale: float = None,
         transencoder_config: dict = {
             "embed_dim": 384,
             "depth": 12,
@@ -38,12 +39,11 @@ class PointMAE(L.LightningModule):
             "drop_path_rate": 0.1,
         },
         feature_blocks: list = [3, 7, 11],
-        num_points: int = 1024,
         cls_dim: int = 2,  # Leaf/Wood
         total_epochs: int = 300,
+        prop_mlp_dim: int = 1024,
     ):
         super().__init__()
-
         if backbone is not None:  # Preload
             logger.info(
                 "Loading model from pretrained backbone, other model parameters will be ignored"
@@ -53,6 +53,7 @@ class PointMAE(L.LightningModule):
             self.embedding_dim = backbone.embedding_dim
             self.neighbor_alg = backbone.neighbor_alg
             self.ball_radius = backbone.ball_radius
+            self.scale = backbone.scale
             self.transencoder_config = backbone.transencoder_config  ##
             self.trans_dim = backbone.trans_dim  ##
             self.group = backbone.group
@@ -61,18 +62,23 @@ class PointMAE(L.LightningModule):
             self.transformer_encoder = backbone.transformer_encoder
             self.norm = backbone.norm
         else:
+            if scale is None:
+                raise ValueError(
+                    "Scale must be provided when not using a pretrained model"
+                )
             self.num_centers = num_centers
             self.num_neighbors = num_neighbors
             self.embedding_dim = embedding_dim
             self.neighbor_alg = neighbor_alg
             self.ball_radius = ball_radius
+            self.scale = scale
             self.transencoder_config = transencoder_config
             self.trans_dim = transencoder_config["embed_dim"]
             self.group = Group(
                 num_centers=self.num_centers,
                 num_neighbors=self.num_neighbors,
                 neighbor_alg=self.neighbor_alg,
-                radius=self.ball_radius,
+                radius=self.ball_radius / self.scale,
             )
             self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
             self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
@@ -83,14 +89,16 @@ class PointMAE(L.LightningModule):
         self.cls_dim = cls_dim
         self.total_epochs = total_epochs
         self.feature_blocks = feature_blocks
+        self.prop_mlp_dim = prop_mlp_dim
 
         # Decoder
         self.propagation_0 = PointNetFeaturePropagation(
             in_channel=len(feature_blocks) * self.embedding_dim + 3,
-            mlp=[self.embedding_dim * 4, self.num_points],
+            mlp=[self.embedding_dim * 4, self.prop_mlp_dim],
         )
 
-        self.convs1 = nn.Conv1d(3392, 512, 1)
+        in_dim = len(self.feature_blocks) * self.embedding_dim * 2 + self.prop_mlp_dim
+        self.convs1 = nn.Conv1d(in_dim, 512, 1)
         self.dp1 = nn.Dropout(0.5)
         self.convs2 = nn.Conv1d(512, 256, 1)
         self.convs3 = nn.Conv1d(256, self.cls_dim, 1)
@@ -109,7 +117,7 @@ class PointMAE(L.LightningModule):
         x = x.reshape(B, M, -1, 3)  # x is now (batch, no mask centers, no neighbors, 3)
         return x
 
-    def forward_encoder(self, patches, centers, unmasked_idx):
+    def forward_encoder(self, patches, centers):
         patch_embeddings = self.patch_encoder(
             patches
         )  # Embeddings for visible patches. (batch, [1-m]*centers, embedding_dim)
@@ -118,12 +126,12 @@ class PointMAE(L.LightningModule):
         )  # Position embeddings for visible patches. (batch, [1-m]*centers, transformer_dim)
 
         # Feed visible patches and position embeddings to transformer
-        x, feature_tensor = self.transformer_encoder(
+        x, feature_list = self.transformer_encoder(
             patch_embeddings, pos_embeddings, feature_blocks=self.feature_blocks
         )
         x = self.norm(x)
 
-        return x, pos_embeddings, feature_tensor
+        return x, pos_embeddings, feature_list
 
     def forward_decoder(self, x, full_pos_embeddings, N):
         x_rec = self.transformer_decoder(
@@ -152,41 +160,38 @@ class PointMAE(L.LightningModule):
         )  # patches (batch, no centers, no neighbors, 3), centers (batch, no centers, 3)
 
         # Encode
-        x, pos_embeddings, feature_list = self.forward_encoder(
+        _, pos_embeddings, feature_list = self.forward_encoder(
             patches, centers
         )  # x: (B, centers, transformer_dim), pos_embeddings: (batch, centers, transformer_dim), feature_tensor: no groups long list of (B, no. centers, transformer dim)
 
         # Stack feature list
         feature_tensor = torch.cat(
-            feature_list, dim=-1
-        )  # (B, no. centers, no. groups * transformer dim)
-        x_max = torch.max(feature_tensor, dim=1)[
-            0
-        ]  # Max along centers, (B, no. groups * transformer dim)
-        x_avg = torch.mean(
-            feature_tensor, dim=1
-        )  # Average along centers, (B, no. groups * transformer dim)
+            feature_list, dim=2
+        )  # Concatenate along feature dimension
+        feature_tensor = feature_tensor.transpose(
+            1, 2
+        )  # Make it [B, C, no centers] #C: transformer dim, no. centers
 
-        x_max_feature = x_max.unsqueeze(1).repeat(
-            1, 1, N
-        )  # (B, 1, no. groups * transformer dim) -> (B, N, no. groups * transformer dim)
-        x_avg_feature = x_avg.unsqueeze(1).repeat(
-            1, 1, N
-        )  # (B, 1, no. groups * transformer dim) -> (B, N, no. groups * transformer dim)
+        x_max = torch.max(feature_tensor, dim=2, keepdim=True)[0]  # [B, C, 1]
+        x_avg = torch.mean(feature_tensor, dim=2, keepdim=True)  # [B, C, 1]
+
+        x_max_feature = x_max.expand(-1, -1, N)  # [B, C, N] #N - number of points
+        x_avg_feature = x_avg.expand(-1, -1, N)  # [B, C, N]
 
         x_global_feature = torch.cat(
-            [x_max_feature, x_avg_feature], dim=-1
-        )  # (B, N, 2 * no. groups * transformer dim)
+            [x_max_feature, x_avg_feature], dim=1
+        )  # [B, 2C, N]
 
         f_level_0 = self.propagation_0(
-            x["points"], centers, x["points"], feature_tensor
+            x["points"].transpose(-1, -2),
+            centers.transpose(-1, -2),
+            x["points"].transpose(-1, -2),
+            feature_tensor,
         )  # (B, N, D')
-        x = torch.cat(
-            (f_level_0, x_global_feature), dim=-1
-        )  # (B, N, D' + 2 * no. groups * transformer dim)
 
-        # Transpose for conv1d
-        x = x.transpose(1, 2)
+        x = torch.cat(
+            (f_level_0, x_global_feature), dim=1
+        )  # (B, N, D' + 2 * no. groups * transformer dim)
 
         x = self.relu(self.bns1(self.convs1(x)))
         x = self.dp1(x)
@@ -195,7 +200,7 @@ class PointMAE(L.LightningModule):
 
         x_hat = x.transpose(1, 2)  # (B, N, cls_dim)
 
-        loss = self.get_loss(x_hat, x_gt)
+        loss = self.get_loss(x_hat, x_gt.long())
         return loss
 
     def get_loss(self, x_hat, target):

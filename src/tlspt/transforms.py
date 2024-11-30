@@ -192,6 +192,22 @@ class Padder:
         return datapoint
 
 
+class FillNa:
+    """
+    Fills NaN values with a specified value
+    """
+
+    def __init__(self, keys, fill_value):
+        self.fill_value = fill_value
+        self.keys = keys
+
+    def __call__(self, datapoint: dict) -> dict:
+        for key in self.keys:
+            datapoint[key] = datapoint[key].nan_to_num(nan=self.fill_value)
+
+        return datapoint
+
+
 class UniformTLSSampler:
     def __init__(self, num_points):
         self.num_points = num_points
@@ -199,6 +215,7 @@ class UniformTLSSampler:
         self.transform = Compose(
             [
                 UniformDownsample(self.num_points, replace=False),  # Changes lengths
+                FillNa(["points", "features"], fill_value=0),  # Replace NaN with 0
                 Padder(self.num_points),  # Does not change lengths
             ]
         )

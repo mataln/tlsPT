@@ -229,7 +229,7 @@ class OctreeDataset(BaseSiteDataset):
         if self.normalize:
             if self.normalizer.mean is None and self.feature_names is not None:
                 raise ValueError("Normalizer not computed. Run prepare_data first.")
-            pc = self.normalizer.normalize(pc)
+            pc = self.normalizer.normalize(pc, self.scale)
 
         datapoint = (
             {"points": pc.points_packed(), "features": pc.features_packed()}
@@ -244,6 +244,7 @@ class OctreeDataset(BaseSiteDataset):
                 datapoint
             )  # Transform should operate on points and features and lengths
 
+        datapoint["scales"] = self.scale
         return datapoint
 
     def __len__(self):

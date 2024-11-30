@@ -49,7 +49,33 @@ def get_at_index(x: torch.Tensor, idx: torch.Tensor):
         return torch.gather(x, 1, idx_expanded).to(device).contiguous()
     elif x.dim() == 3:
         B, C, D = x.shape
+        print(idx.shape)
+        print(x.shape)
         idx_expanded = idx.unsqueeze(-1).expand(-1, -1, D)
         return torch.gather(x, 1, idx_expanded).to(device).contiguous()
     else:
         raise ValueError(f"Invalid dimension: {x.dim()}")
+
+
+def index_points(points, idx):
+    """
+    Input:
+        points: input points data, [B, N, C]
+        idx: sample index data, [B, S]
+    Return:
+        new_points:, indexed points data, [B, S, C]
+    """
+    device = points.device
+    B = points.shape[0]
+    view_shape = list(idx.shape)
+    view_shape[1:] = [1] * (len(view_shape) - 1)
+    repeat_shape = list(idx.shape)
+    repeat_shape[0] = 1
+    batch_indices = (
+        torch.arange(B, dtype=torch.long)
+        .to(device)
+        .view(view_shape)
+        .repeat(repeat_shape)
+    )
+    new_points = points[batch_indices, idx, :]
+    return new_points

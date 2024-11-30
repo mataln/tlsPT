@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 from pytorch3d.ops import ball_query, knn_points, sample_farthest_points
 from torch import nn
 from torch.linalg import norm
 
-from tlspt.models.utils import get_at_index
+from tlspt.models.utils import index_points
 
 
 class PointNetEncoder(nn.Module):
@@ -230,13 +231,17 @@ class PointNetFeaturePropagation(nn.Module):
     def forward(self, xyz1, xyz2, points1, points2):
         """
         Input:
-            xyz1: input points position data, [B, N, C]
-            xyz2: sampled input points position data, [B, S, C]
-            points1: input points data, [B, N, D]
-            points2: input points data, [B, S, D]
+            xyz1: input points position data, [B, C, N]
+            xyz2: sampled input points position data, [B, C, S]
+            points1: input points data, [B, D, N]
+            points2: input points data, [B, D, S]
         Return:
-            new_points: upsampled points data, [B, N, D']
+            new_points: upsampled points data, [B, D', N]
         """
+        xyz1 = xyz1.permute(0, 2, 1)
+        xyz2 = xyz2.permute(0, 2, 1)
+
+        points2 = points2.permute(0, 2, 1)
         B, N, C = xyz1.shape
         _, S, _ = xyz2.shape
 
@@ -251,14 +256,16 @@ class PointNetFeaturePropagation(nn.Module):
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
             weight = dist_recip / norm
             interpolated_points = torch.sum(
-                get_at_index(points2, idx) * weight.view(B, N, 3, 1), dim=2
+                index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2
             )
 
         if points1 is not None:
+            points1 = points1.permute(0, 2, 1)
             new_points = torch.cat([points1, interpolated_points], dim=-1)
         else:
             new_points = interpolated_points
 
+        new_points = new_points.permute(0, 2, 1)
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
             new_points = F.relu(bn(conv(new_points)))
