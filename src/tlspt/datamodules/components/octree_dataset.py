@@ -121,6 +121,11 @@ class OctreeDataset(BaseSiteDataset):
             + str(self.scale)
         )
 
+    def __reprnosplit__(self):
+        return get_hash(
+            self.__class__.__name__ + str(self.split_file) + str(self.scale)
+        )
+
     def prepare_data(self, force_compute=False):
         """
         Preprocessing step to be defined in each dataset.

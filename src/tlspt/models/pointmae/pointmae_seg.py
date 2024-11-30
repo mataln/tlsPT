@@ -41,6 +41,7 @@ class PointMAESegmentation(L.LightningModule):
         feature_blocks: list = [3, 7, 11],
         cls_dim: int = 2,  # Leaf/Wood
         total_epochs: int = 300,
+        warmup_epochs: int = 10,
         prop_mlp_dim: int = 1024,
     ):
         super().__init__()
@@ -83,9 +84,11 @@ class PointMAESegmentation(L.LightningModule):
             self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
             self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
             self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
-            self.norm = nn.LayerNorm(self.trans_dim)
 
         self.loss = nn.CrossEntropyLoss()
+        self.warmup_epochs = min(warmup_epochs, total_epochs)
+        self.warmup_epochs = max(self.warmup_epochs, 1)
+
         self.cls_dim = cls_dim
         self.total_epochs = total_epochs
         self.feature_blocks = feature_blocks
@@ -129,9 +132,8 @@ class PointMAESegmentation(L.LightningModule):
         x, feature_list = self.transformer_encoder(
             patch_embeddings, pos_embeddings, feature_blocks=self.feature_blocks
         )
-        x = self.norm(x)
 
-        return x, pos_embeddings, feature_list
+        return pos_embeddings, feature_list
 
     def forward_decoder(self, x, full_pos_embeddings, N):
         x_rec = self.transformer_decoder(
@@ -160,7 +162,7 @@ class PointMAESegmentation(L.LightningModule):
         )  # patches (batch, no centers, no neighbors, 3), centers (batch, no centers, 3)
 
         # Encode
-        _, pos_embeddings, feature_list = self.forward_encoder(
+        pos_embeddings, feature_list = self.forward_encoder(
             patches, centers
         )  # x: (B, centers, transformer_dim), pos_embeddings: (batch, centers, transformer_dim), feature_tensor: no groups long list of (B, no. centers, transformer dim)
 
@@ -212,6 +214,15 @@ class PointMAESegmentation(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.forward(batch)
+
+        # Debug unused parameters
+        # unused = []
+        # for name, param in self.named_parameters():
+        #     if param.grad is None:
+        #         unused.append(name)
+        # if unused:
+        #     logger.info(f"Unused parameters: {unused}")
+
         self.log(
             "train/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
         )
@@ -232,7 +243,7 @@ class PointMAESegmentation(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
         # return optimizer
-        warmup_epochs = 10
+        warmup_epochs = self.warmup_epochs
 
         def lr_lambda(current_epoch):
             if current_epoch < warmup_epochs:

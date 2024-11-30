@@ -28,7 +28,10 @@ class TlsNormalizer:
         self.features_to_normalize = params.get("features_to_normalize", None)
 
         self.hash = get_hash(
-            self.dataset.__repr__() + str(params) + str(n_samples) + str(out_dtype)
+            self.dataset.__reprnosplit__()
+            + str(params)
+            + str(n_samples)
+            + str(out_dtype)
         )
 
         self.stats_file = os.path.join(

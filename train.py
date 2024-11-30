@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import random
 import sys
@@ -26,8 +27,8 @@ from omegaconf import DictConfig
 
 @hydra.main(
     version_base="1.1",
-    config_path="configs/dev/point_mae/",
-    config_name="train_bool.yaml",
+    config_path="configs/dev/point_mae/cluster/lw_seg/",
+    config_name="DEVTEST.yaml",
 )
 def main(config: DictConfig):
     if "seed" in config:
@@ -126,6 +127,8 @@ def main(config: DictConfig):
 
     matmul_precision = config.get("matmul_precision", "high")
     torch.set_float32_matmul_precision(matmul_precision)
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    logging.getLogger("torch.distributed.distributed_c10d").setLevel(logging.DEBUG)
     trainer = pl.Trainer(
         num_nodes=num_nodes,
         strategy=strategy,

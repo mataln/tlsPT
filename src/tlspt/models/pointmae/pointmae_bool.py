@@ -198,7 +198,7 @@ class PointMAE(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
         # return optimizer
-        warmup_epochs = 10
+        warmup_epochs = self.warmup_epochs
 
         def lr_lambda(current_epoch):
             if current_epoch < warmup_epochs:
