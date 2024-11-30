@@ -66,8 +66,6 @@ dataloader:
         _target_: tlspt.transforms.UniformTLSSampler
         num_points: 16384
 
-Config:
-
 model:
   _target_: tlspt.models.pointmae.pointmae_bool.PointMAE
   neighbor_alg: ball_query

@@ -190,7 +190,10 @@ class PointMAE(L.LightningModule):
         )
 
     def test_step(self, batch, batch_idx):
-        pass
+        loss = self.forward(batch)
+        self.log(
+            "val/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
 
     def on_fit_start(self):
         self.logger.experiment.log(self.hparams)

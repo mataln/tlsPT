@@ -6,6 +6,8 @@ import lightning as L
 import torch
 from loguru import logger
 from torch import nn
+from torchmetrics import Accuracy
+from torchmetrics.segmentation import MeanIoU
 
 from tlspt.models.transformer import TransformerEncoder
 
@@ -86,6 +88,12 @@ class PointMAESegmentation(L.LightningModule):
             self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
 
         self.loss = nn.CrossEntropyLoss()
+        self.miou = MeanIoU(num_classes=cls_dim, input_format="index")
+        self.accuracy = Accuracy(
+            task="binary" if cls_dim == 2 else "multiclass",
+            num_classes=cls_dim if cls_dim > 2 else None,
+        )
+
         self.warmup_epochs = min(warmup_epochs, total_epochs)
         self.warmup_epochs = max(self.warmup_epochs, 1)
 
@@ -150,12 +158,10 @@ class PointMAESegmentation(L.LightningModule):
             "points"
         ].shape  # B: batch size, N: number of points, _: number of dimensions (3)
 
-        x_gt = x["features"]  # Ground truth points (batch, N, 1) #Cls labels
         if x["features"].shape[2] > 1:
             raise ValueError(
                 "Multiple features not supported. Need to use label as only feature."
             )
-        x_gt = x_gt.squeeze(-1)  # (batch, N)
 
         patches, centers = self.group(
             x["points"], x["lengths"]
@@ -202,8 +208,7 @@ class PointMAESegmentation(L.LightningModule):
 
         x_hat = x.transpose(1, 2)  # (B, N, cls_dim)
 
-        loss = self.get_loss(x_hat, x_gt.long())
-        return loss
+        return x_hat
 
     def get_loss(self, x_hat, target):
         B, N, cls_dim = x_hat.shape
@@ -212,30 +217,85 @@ class PointMAESegmentation(L.LightningModule):
 
         return self.loss(x_hat, target)
 
-    def training_step(self, batch, batch_idx):
-        loss = self.forward(batch)
+    def get_miou(self, x_pred, target):
+        return self.miou(x_pred, target)
 
-        # Debug unused parameters
-        # unused = []
-        # for name, param in self.named_parameters():
-        #     if param.grad is None:
-        #         unused.append(name)
-        # if unused:
-        #     logger.info(f"Unused parameters: {unused}")
+    def get_acc(self, x_pred, target):
+        return self.accuracy(x_pred, target)
+
+    def training_step(self, batch, batch_idx):
+        x_hat = self.forward(batch)  # Logits (batch, N, cls_dim)
+        x_gt = (
+            batch["features"].squeeze(-1).long()
+        )  # Ground truth points (batch, N) #Cls labels
+        loss = self.get_loss(x_hat, x_gt)
 
         self.log(
             "train/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
         )
+
+        with torch.no_grad():
+            x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
+            acc = self.get_acc(x_pred, x_gt)
+            self.log(
+                "train/acc",
+                acc,
+                on_step=True,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
+            miou = self.get_miou(x_pred, x_gt)
+            self.log(
+                "train/miou",
+                miou,
+                on_step=True,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
+
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss = self.forward(batch)
+        x_hat = self.forward(batch)  # Logits (batch, N, cls_dim)
+        x_gt = (
+            batch["features"].squeeze(-1).long()
+        )  # Ground truth points (batch, N) #Cls labels
+        x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
+        loss = self.get_loss(x_hat, x_gt)
+        acc = self.get_acc(x_pred, x_gt)
+        miou = self.get_miou(x_pred, x_gt)
         self.log(
             "val/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
         )
+        self.log(
+            "val/acc", acc, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        self.log(
+            "val/miou", miou, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        return loss
 
     def test_step(self, batch, batch_idx):
-        pass
+        x_hat = self.forward(batch)  # Logits (batch, N, cls_dim)
+        x_gt = (
+            batch["features"].squeeze(-1).long()
+        )  # Ground truth points (batch, N) #Cls labels
+        x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
+        loss = self.get_loss(x_hat, x_gt)
+        acc = self.get_acc(x_pred, x_gt)
+        miou = self.get_miou(x_pred, x_gt)
+        self.log(
+            "test/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        self.log(
+            "test/acc", acc, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        self.log(
+            "test/miou", miou, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        return loss
 
     def on_fit_start(self):
         self.logger.experiment.log(self.hparams)
