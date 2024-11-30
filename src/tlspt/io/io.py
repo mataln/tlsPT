@@ -506,8 +506,8 @@ def _save_ply(
         ]
 
     # Temporarily rename
-    if "truth" in feature_names:
-        feature_names[feature_names.index("truth")] = "scalar_truth"
+    # if "truth" in feature_names:
+    #     feature_names[feature_names.index("truth")] = "scalar_truth"
 
     _write_ply_header(
         f,
