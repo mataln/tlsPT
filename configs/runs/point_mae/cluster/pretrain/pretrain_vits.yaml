@@ -10,6 +10,8 @@ hydra:
   job:
     chdir: false
 
+devices: 4
+
 max_epochs: 300
 strategy: deepspeed_stage_2
 profiler: null

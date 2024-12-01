@@ -84,7 +84,7 @@ def main(config: DictConfig):
 
     num_nodes = config.get("num_nodes", 1)
     strategy = config.get("strategy", "ddp")
-    devices = config.get("devices", "auto")
+    devices = config.get("devices", 1)
     limit_train_pct = config.get("limit_train_pct", 1.0)
     limit_test_pct = config.get("limit_test_pct", 1.0)
     limit_val_pct = config.get("limit_val_pct", 1.0)
@@ -110,6 +110,12 @@ def main(config: DictConfig):
             "limit_train_pct": limit_train_pct,
             "limit_test_pct": limit_test_pct,
             "limit_val_pct": limit_val_pct,
+        }
+    )
+
+    wandb_logger.log_hyperparams(
+        {
+            "num_centers": config.model.num_centers,
         }
     )
 
