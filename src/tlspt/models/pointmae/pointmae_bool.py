@@ -206,17 +206,21 @@ class PointMAE(L.LightningModule):
         warmup_epochs = self.warmup_epochs
 
         def lr_lambda(current_epoch):
-            if current_epoch <= warmup_epochs:
-                return float(current_epoch) / float(max(1, warmup_epochs))
+            if warmup_epochs >= self.total_epochs:
+                # Only warmup phase, no decay
+                lr = float(current_epoch + 1) / float(max(1, warmup_epochs))
+                return min(lr, 1.0)
             else:
-                return 0.5 * (
-                    1
-                    + math.cos(
-                        math.pi
-                        * (current_epoch - warmup_epochs)
-                        / (self.total_epochs - warmup_epochs)
+                if current_epoch < warmup_epochs:
+                    return float(current_epoch + 1) / float(warmup_epochs)
+                else:
+                    decay_epochs = self.total_epochs - warmup_epochs
+                    return 0.5 * (
+                        1
+                        + math.cos(
+                            math.pi * (current_epoch - warmup_epochs) / decay_epochs
+                        )
                     )
-                )
 
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
         return [optimizer], [

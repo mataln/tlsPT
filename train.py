@@ -11,7 +11,7 @@ import lightning.pytorch as pl
 import numpy as np
 import omegaconf
 import torch
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.profilers import (
     AdvancedProfiler,
@@ -22,8 +22,6 @@ from lightning.pytorch.profilers import (
 # MixedPrecisionPlugin
 from loguru import logger
 from omegaconf import DictConfig
-
-import wandb
 
 
 @hydra.main(
@@ -37,8 +35,22 @@ def main(config: DictConfig):
     else:
         seed = 0
 
+    start_time = start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    experiment_name = f"{config.experiment_name}_{seed}_{start_time}"
+
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    global_rank = int(os.environ.get("RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    log_dir = os.path.join(os.getcwd(), "logs")
+
+    logger.info(f"LOCAL_RANK: {local_rank}")
+    logger.info(f"RANK: {global_rank}")
+    logger.info(f"WORLD_SIZE: {world_size}")
+
     logger.remove()  # Remove the default handler
     logger.add(sys.stdout, level="INFO")
+    logger.add(os.path.join(log_dir, f"{experiment_name}.log"), level="DEBUG")
 
     logger.info(f"Training model with seed {seed}")
     logger.info(f"Building dataset with seed {seed}")
@@ -49,14 +61,11 @@ def main(config: DictConfig):
     torch.cuda.manual_seed_all(seed)
     pl.seed_everything(seed)
 
-    wandb.config = omegaconf.OmegaConf.to_container(
+    cfg_dict = omegaconf.OmegaConf.to_container(
         config, resolve=True, throw_on_missing=True
     )
 
     tags = config.tags if "tags" in config else []
-
-    start_time = start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    experiment_name = f"{config.experiment_name}_{seed}_{start_time}"
 
     wandb_logger = WandbLogger(
         name=experiment_name,
@@ -65,6 +74,9 @@ def main(config: DictConfig):
         mode=config.wandb.mode,
         tags=tags,
     )
+
+    # Update the W&B config
+    wandb_logger.log_hyperparams(cfg_dict)
 
     cmd = " ".join(sys.argv)
     wandb_logger.log_hyperparams({"cmd": cmd})
@@ -133,7 +145,12 @@ def main(config: DictConfig):
         filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
         auto_insert_metric_name=False,
     )
-    callbacks = [checkpoint_callback]
+
+    lr_monitor = LearningRateMonitor(
+        logging_interval="step", log_momentum=False, log_weight_decay=False
+    )
+
+    callbacks = [checkpoint_callback, lr_monitor]
 
     model = hydra.utils.instantiate(config.model)
     # model = torch.compile(model)
@@ -159,4 +176,7 @@ def main(config: DictConfig):
 
 
 if __name__ == "__main__":
+    # Filter out DeepSpeed launcher arguments before Hydra sees them
+    filtered_args = [arg for arg in sys.argv[1:] if not arg.startswith("--local_rank")]
+    sys.argv[1:] = filtered_args
     main()

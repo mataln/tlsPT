@@ -168,3 +168,4 @@ machine.file.*
 checkpoints
 widi*
 wandb/
+logs

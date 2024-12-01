@@ -1,5 +1,5 @@
 wandb:
-  project: tlspt_lw
+  project: tlspt_lw_redux
   entity: mja2106
   mode: online
 experiment_name: null
@@ -101,12 +101,12 @@ datamodule:
 model:
   _target_: tlspt.models.pointmae.pointmae_seg.PointMAESegmentation
   neighbor_alg: ball_query
-  ball_radius: 0.2
+  ball_radius: 0.1
   scale: 2.0
   total_epochs: ${max_epochs}
   warmup_epochs: 10
   num_centers: 196
-  num_neighbors: 128
+  num_neighbors: 64
   embedding_dim: 384 #Width
   transencoder_config:
     embed_dim: ${model.embedding_dim}
