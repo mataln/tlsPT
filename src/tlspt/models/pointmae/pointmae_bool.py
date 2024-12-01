@@ -59,6 +59,8 @@ class PointMAE(L.LightningModule):
         self.mask_type = mask_type
         self.neighbor_alg = neighbor_alg
         self.ball_radius = ball_radius
+        if scale is None:
+            raise ValueError("Scale must be provided")
         self.scale = scale
         self.transencoder_config = transencoder_config
         self.transdecoder_config = transdecoder_config
@@ -204,7 +206,7 @@ class PointMAE(L.LightningModule):
         warmup_epochs = self.warmup_epochs
 
         def lr_lambda(current_epoch):
-            if current_epoch < warmup_epochs:
+            if current_epoch <= warmup_epochs:
                 return float(current_epoch) / float(max(1, warmup_epochs))
             else:
                 return 0.5 * (

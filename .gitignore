@@ -167,3 +167,4 @@ output.png
 machine.file.*
 checkpoints
 widi*
+wandb/

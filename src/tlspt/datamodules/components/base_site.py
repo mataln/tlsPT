@@ -51,7 +51,12 @@ class BaseSiteDataset(Dataset):
         plots = plots[plots.split == self.split].copy()["plot"].values
 
         if len(plots) == 0:
-            raise ValueError(f"{self}: no plots for '{split}' found for {split_file}")
+            logger.warning(
+                f"{self}: no plots for '{split}' found for {split_file}. Dataset will be empty"
+            )
+            self.plots = []
+            self.plot_folders = []
+            return
 
         logger.info(f"{self}: looking for {len(plots)} folders in {self.base_folder}")
         self.plots = utils.list_all_folders(self.base_folder)
@@ -66,7 +71,7 @@ class BaseSiteDataset(Dataset):
             )
         else:
             raise ValueError(
-                f"{self}: no '{self.split}' files found in {self.base_folder}"
+                f"{self}: no '{self.split}' files found in {self.base_folder} due to discrepancies between split file and folder files"
             )
 
         self.plot_folders = self.get_plot_folders()

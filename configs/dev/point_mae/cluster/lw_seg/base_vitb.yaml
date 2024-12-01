@@ -10,13 +10,17 @@ profiler: null
 checkpoint_dir: /home/mja78/rds/hpc-work/tlspt-checkpoints
 matmul_precision: 'high'
 
-dataloader:
+datamodule:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule
   num_workers: 24
-  prefetch_factor: 1
+  prefetch_factor: 2
   persistent_workers: True
   pin_memory: True
   batch_size: 128
+
+  limit_train_pct: 1.0
+  limit_val_pct: 1.0
+  limit_test_pct: 1.0
 
   train_dataset:
     target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset

@@ -93,6 +93,9 @@ class PointMAESegmentation(L.LightningModule):
             task="binary" if cls_dim == 2 else "multiclass",
             num_classes=cls_dim if cls_dim > 2 else None,
         )
+        self.balanced_accuracy = Accuracy(
+            task="multiclass", num_classes=cls_dim, average="macro"
+        )
 
         self.warmup_epochs = min(warmup_epochs, total_epochs)
         self.warmup_epochs = max(self.warmup_epochs, 1)
@@ -221,7 +224,7 @@ class PointMAESegmentation(L.LightningModule):
         return self.miou(x_pred, target)
 
     def get_acc(self, x_pred, target):
-        return self.accuracy(x_pred, target)
+        return self.accuracy(x_pred, target), self.balanced_accuracy(x_pred, target)
 
     def training_step(self, batch, batch_idx):
         x_hat = self.forward(batch)  # Logits (batch, N, cls_dim)
@@ -236,10 +239,18 @@ class PointMAESegmentation(L.LightningModule):
 
         with torch.no_grad():
             x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
-            acc = self.get_acc(x_pred, x_gt)
+            acc, bal_acc = self.get_acc(x_pred, x_gt)
             self.log(
                 "train/acc",
                 acc,
+                on_step=True,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
+            self.log(
+                "train/bal_acc",
+                bal_acc,
                 on_step=True,
                 on_epoch=True,
                 logger=True,
@@ -263,14 +274,29 @@ class PointMAESegmentation(L.LightningModule):
             batch["features"].squeeze(-1).long()
         )  # Ground truth points (batch, N) #Cls labels
         x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
+
+        # Debug prints
+        # print("Unique predictions:", torch.unique(x_pred).cpu().numpy())
+        # print("Unique ground truth:", torch.unique(x_gt).cpu().numpy())
+        # print("Prediction distribution:", torch.bincount(x_pred.flatten()).cpu().numpy())
+        # print("Ground truth distribution:", torch.bincount(x_gt.flatten()).cpu().numpy())
+
         loss = self.get_loss(x_hat, x_gt)
-        acc = self.get_acc(x_pred, x_gt)
+        acc, bal_acc = self.get_acc(x_pred, x_gt)
         miou = self.get_miou(x_pred, x_gt)
         self.log(
             "val/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
         )
         self.log(
             "val/acc", acc, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        self.log(
+            "val/bal_acc",
+            bal_acc,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         self.log(
             "val/miou", miou, on_step=True, on_epoch=True, logger=True, sync_dist=True
@@ -284,13 +310,21 @@ class PointMAESegmentation(L.LightningModule):
         )  # Ground truth points (batch, N) #Cls labels
         x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
         loss = self.get_loss(x_hat, x_gt)
-        acc = self.get_acc(x_pred, x_gt)
+        acc, bal_acc = self.get_acc(x_pred, x_gt)
         miou = self.get_miou(x_pred, x_gt)
         self.log(
             "test/loss", loss, on_step=True, on_epoch=True, logger=True, sync_dist=True
         )
         self.log(
             "test/acc", acc, on_step=True, on_epoch=True, logger=True, sync_dist=True
+        )
+        self.log(
+            "test/bal_acc",
+            bal_acc,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         self.log(
             "test/miou", miou, on_step=True, on_epoch=True, logger=True, sync_dist=True
@@ -306,7 +340,7 @@ class PointMAESegmentation(L.LightningModule):
         warmup_epochs = self.warmup_epochs
 
         def lr_lambda(current_epoch):
-            if current_epoch < warmup_epochs:
+            if current_epoch <= warmup_epochs:
                 return float(current_epoch) / float(max(1, warmup_epochs))
             else:
                 return 0.5 * (

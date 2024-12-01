@@ -21,6 +21,12 @@ class MergedOctreeDataset(Dataset):
         idx_sampler=None,
         in_memory: bool = False,
     ):
+        if isinstance(scales, int):
+            scales = [scales] * len(split_files)
+
+        if isinstance(min_points, int):
+            min_points = [min_points] * len(split_files)
+
         if len(split_files) != len(scales):
             raise ValueError("Split files and scales must have the same length")
 

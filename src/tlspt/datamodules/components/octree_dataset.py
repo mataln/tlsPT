@@ -50,8 +50,19 @@ class OctreeDataset(BaseSiteDataset):
         self.min_points = min_points
         self.plots_keep = plots_keep
         self.in_memory = in_memory
+        self.empty = False
 
         super().__init__(split_file, split, self.site_name, "ply")
+        if self.plot_folders == []:  # Empty dataset
+            self.empty = True
+            self.octrees_files = []
+            self.octrees = []
+            self.nodes = []
+            self.leaf_nodes = []
+            self.files_to_load = []
+            self.reader = None
+            self.normalizer = None
+            return
 
         # Load the octrees
         self.octree_files = self.find_octree_files()
@@ -130,6 +141,9 @@ class OctreeDataset(BaseSiteDataset):
         """
         Preprocessing step to be defined in each dataset.
         """
+        if self.empty:
+            return
+
         if self.normalize:
             self.normalizer.prepare_data(force_compute=force_compute)
         return

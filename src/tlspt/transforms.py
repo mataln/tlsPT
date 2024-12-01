@@ -203,7 +203,8 @@ class FillNa:
 
     def __call__(self, datapoint: dict) -> dict:
         for key in self.keys:
-            datapoint[key] = datapoint[key].nan_to_num(nan=self.fill_value)
+            if key in datapoint:
+                datapoint[key] = datapoint[key].nan_to_num(nan=self.fill_value)
 
         return datapoint
 

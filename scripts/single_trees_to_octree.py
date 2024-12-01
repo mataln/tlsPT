@@ -54,6 +54,22 @@ def main():
     logger.info(f"Failed to read {failed} point clouds")
     # pointclouds = [read(file) for file in ply_files]
 
+    # Feature renaming
+    # name map current -> new
+    feature_name_map = {
+        "truth": "scalar_truth",
+        "label": "scalar_truth",
+        "scalar_label": "scalar_truth",
+        "distance": "scalar_distance",
+        "pathlength": "scalar_pathlength",
+        "reflectance": "scalar_reflectance",
+        "treeid": "scalar_treeid",
+    }
+    for pc in pointclouds:
+        for i, feature_name in enumerate(pc._feature_names):
+            if feature_name in feature_name_map:
+                pc._feature_names[i] = feature_name_map[feature_name]
+
     logger.info("Creating octree")
     octree = FOctree(
         pointclouds, min_scale=min_scale

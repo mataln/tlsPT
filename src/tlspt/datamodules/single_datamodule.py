@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import torch
 from hydra.utils import get_class
 from lightning.pytorch import LightningDataModule
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SubsetRandomSampler
 
 
 class SingleDataModule(
@@ -18,6 +19,9 @@ class SingleDataModule(
         pin_memory: bool = False,
         persistent_workers: bool = True,
         prefetch_factor: int = 2,
+        limit_train_pct: float = 1.0,
+        limit_val_pct: float = 1.0,
+        limit_test_pct: float = 1.0,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -31,6 +35,31 @@ class SingleDataModule(
         test_class = get_class(test_dataset.target_class)
         self.test_dataset = test_class(**test_dataset.kwargs)
 
+        self.train_sampler = None
+        self.val_sampler = None
+        self.test_sampler = None
+
+        if 0 < limit_train_pct < 1.0:
+            num_samples = int(len(self.train_dataset) * limit_train_pct)
+            train_indices = torch.randperm(len(self.train_dataset))[:num_samples]
+            self.train_sampler = SubsetRandomSampler(train_indices)
+        elif limit_train_pct != 1.0:
+            raise ValueError("limit_train_pct must be > 0 and <= 1")
+
+        if 0 < limit_val_pct < 1.0:
+            num_samples = int(len(self.val_dataset) * limit_val_pct)
+            val_indices = torch.randperm(len(self.val_dataset))[:num_samples]
+            self.val_sampler = SubsetRandomSampler(val_indices)
+        elif limit_val_pct != 1.0:
+            raise ValueError("limit_val_pct must be > 0 and <= 1")
+
+        if 0 < limit_test_pct < 1.0:
+            num_samples = int(len(self.test_dataset) * limit_test_pct)
+            test_indices = torch.randperm(len(self.test_dataset))[:num_samples]
+            self.test_sampler = SubsetRandomSampler(test_indices)
+        elif limit_test_pct != 1.0:
+            raise ValueError("limit_test_pct must be > 0 and <= 1")
+
     def prepare_data(self):
         self.train_dataset.prepare_data()  # Precomputes mean + std for normalizers
         self.val_dataset.prepare_data()
@@ -42,7 +71,8 @@ class SingleDataModule(
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=True,
+            sampler=self.train_sampler,
+            shuffle=(self.train_sampler is None),
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
         )
@@ -53,6 +83,7 @@ class SingleDataModule(
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
+            sampler=self.val_sampler,
             shuffle=False,
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
@@ -64,6 +95,7 @@ class SingleDataModule(
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
+            sampler=self.test_sampler,
             shuffle=False,
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
