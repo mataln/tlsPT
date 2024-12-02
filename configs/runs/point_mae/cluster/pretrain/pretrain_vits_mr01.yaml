@@ -1,0 +1,113 @@
+wandb:
+  project: tlspt_pretrain_redux
+  entity: mja2106
+  mode: online
+experiment_name: null
+
+hydra:
+  run:
+    dir: /home/mja78/rds/hpc-work/hydra
+  job:
+    chdir: false
+
+devices: 4
+
+max_epochs: 300
+strategy: deepspeed_stage_2
+profiler: null
+matmul_precision: 'high'
+num_points: 8192
+seed: 0
+
+split_files:
+  - "${hydra:runtime.cwd}/data/plot_octrees/allen-spain/allen-spain-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-cali/widi-cali-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-fpc/widi-fpc-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-nxv/widi-nxv-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-mly/widi-mly-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-dfall/widi-dfall-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/allen-finland/allen-finland-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-ank/widi-ank-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/allen-poland/allen-poland-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/widi-fgc/widi-fgc-splits.csv"
+  - "${hydra:runtime.cwd}/data/plot_octrees/hjfo-ger/hjfo-ger-splits.csv"
+min_points: 512
+scales: 2
+feature_names: null
+
+datamodule:
+  _target_: tlspt.datamodules.single_datamodule.SingleDataModule
+  num_workers: 28
+  prefetch_factor: 2
+  persistent_workers: True
+  pin_memory: True
+  batch_size: 64
+
+  limit_train_pct: 1.0
+  limit_val_pct: 1.0
+  limit_test_pct: 1.0
+
+  train_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files: ${split_files}
+      split: train
+      scales: ${scales} #One for each dataset
+      min_points: ${min_points} #One for each dataset
+      feature_names: ${feature_names}
+      features_to_normalize: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.UniformTLSSampler
+        num_points: ${num_points}
+
+  val_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files: ${split_files}
+      split: val
+      scales: ${scales} #One for each dataset
+      min_points: ${min_points} #One for each dataset
+      feature_names: ${feature_names}
+      features_to_normalize: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.UniformTLSSampler
+        num_points: ${num_points}
+
+  test_dataset:
+    target_class: tlspt.datamodules.components.merged_dataset.MergedOctreeDataset
+    kwargs:
+      split_files: ${split_files}
+      split: test
+      scales: ${scales} #One for each dataset
+      min_points: ${min_points} #One for each dataset
+      feature_names: ${feature_names}
+      features_to_normalize: null
+      normalize: True
+      transform:
+        _target_: tlspt.transforms.UniformTLSSampler
+        num_points: ${num_points}
+
+model:
+  _target_: tlspt.models.pointmae.pointmae_bool.PointMAE
+  neighbor_alg: ball_query
+  ball_radius: 0.1
+  scale: 2.0
+  total_epochs: ${max_epochs}
+  warmup_epochs: 10
+  num_centers: 196
+  num_neighbors: 32
+  embedding_dim: 384 #Width
+  mask_ratio: 0.1
+  mask_type: random
+  transencoder_config:
+    embed_dim: ${model.embedding_dim}
+    depth: 12 #Depth
+    num_heads: 6 #Heads
+    mlp_ratio: 4.0 #MLP
+  transdecoder_config:
+    embed_dim: ${model.embedding_dim}
+    depth: 4 #Depth
+    num_heads: 6 #Heads
+    mlp_ratio: 4.0 #MLP
