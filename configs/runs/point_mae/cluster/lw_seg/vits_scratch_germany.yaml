@@ -1,5 +1,5 @@
 wandb:
-  project: tlspt_lw_redux
+  project: tlspt_lw_redux2
   entity: mja2106
   mode: online
 experiment_name: null
@@ -13,7 +13,7 @@ hydra:
 devices: 1
 
 max_epochs: 300
-strategy: deepspeed_stage_2
+strategy: ddp
 profiler: null
 matmul_precision: 'high'
 num_points: 8192
@@ -101,7 +101,7 @@ datamodule:
 model:
   _target_: tlspt.models.pointmae.pointmae_seg.PointMAESegmentation
   neighbor_alg: ball_query
-  ball_radius: 0.1
+  ball_radius: 0.2
   scale: 2.0
   total_epochs: ${max_epochs}
   warmup_epochs: 10
