@@ -45,47 +45,104 @@ class PointMAESegmentation(L.LightningModule):
         total_epochs: int = 300,
         warmup_epochs: int = 10,
         prop_mlp_dim: int = 1024,
+        freeze_encoder: bool = False,
     ):
         super().__init__()
+
+        self.embedding_dim = embedding_dim
+        self.transencoder_config = transencoder_config
+        self.trans_dim = transencoder_config["embed_dim"]
+        self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
+        logger.debug(f"Position encoder: {self.pos_encoder.state_dict().keys()}")
+        self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
+        logger.debug(f"Patch encoder: {self.patch_encoder.state_dict().keys()}")
+        self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
+        logger.debug(
+            f"Transformer encoder: {self.transformer_encoder.state_dict().keys()}"
+        )
+
         if backbone is not None:  # Preload
             logger.info(
                 "Loading model from pretrained backbone, other model parameters will be ignored"
             )
-            self.num_centers = backbone.num_centers
-            self.num_neighbors = backbone.num_neighbors
-            self.embedding_dim = backbone.embedding_dim
-            self.neighbor_alg = backbone.neighbor_alg
-            self.ball_radius = backbone.ball_radius
-            self.scale = backbone.scale
-            self.transencoder_config = backbone.transencoder_config  ##
-            self.trans_dim = backbone.trans_dim  ##
-            self.group = backbone.group
-            self.pos_encoder = backbone.pos_encoder
-            self.patch_encoder = backbone.patch_encoder
-            self.transformer_encoder = backbone.transformer_encoder
-            self.norm = backbone.norm
-        else:
-            if scale is None:
-                raise ValueError(
-                    "Scale must be provided when not using a pretrained model"
-                )
-            self.num_centers = num_centers
-            self.num_neighbors = num_neighbors
-            self.embedding_dim = embedding_dim
-            self.neighbor_alg = neighbor_alg
-            self.ball_radius = ball_radius
-            self.scale = scale
-            self.transencoder_config = transencoder_config
-            self.trans_dim = transencoder_config["embed_dim"]
-            self.group = Group(
-                num_centers=self.num_centers,
-                num_neighbors=self.num_neighbors,
-                neighbor_alg=self.neighbor_alg,
-                radius=self.ball_radius / self.scale,
+
+            self.embedding_dim = backbone[
+                "transformer_encoder.blocks.0.attn.proj.weight"
+            ].shape[
+                0
+            ]  # Needed for feature prop
+            logger.info(
+                f"Embedding/transformer dim from backbone: {self.embedding_dim}"
             )
-            self.pos_encoder = PositionEncoder(transformer_dim=self.trans_dim)
-            self.patch_encoder = PointNetEncoder(embedding_dim=self.embedding_dim)
-            self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
+
+            # Posn encoder
+            pos_encoder_state = {
+                k.replace("pos_encoder.", ""): backbone[k]
+                for k in backbone.keys()
+                if k.startswith("pos_encoder")
+            }
+            if pos_encoder_state.keys() != self.pos_encoder.state_dict().keys():
+                logger.error(
+                    f"Mismatch in state dicts for pos encoder: {self.pos_encoder.state_dict().keys()}"
+                )
+                raise ValueError("Position encoder state dict keys do not match")
+            self.pos_encoder.load_state_dict(pos_encoder_state)
+            logger.info(f"Loaded pos encoder from backbone")
+
+            # Patch encoder
+            patch_encoder_state = {
+                k.replace("patch_encoder.", ""): backbone[k]
+                for k in backbone.keys()
+                if k.startswith("patch_encoder")
+            }
+            if patch_encoder_state.keys() != self.patch_encoder.state_dict().keys():
+                logger.error(
+                    f"Mismatch in state dicts for patch encoder: {self.patch_encoder.state_dict().keys()}"
+                )
+                raise ValueError("Patch encoder state dict keys do not match")
+            self.patch_encoder.load_state_dict(patch_encoder_state)
+            logger.info(f"Loaded patch encoder from backbone")
+
+            # Transformer encoder
+            transformer_encoder_state = {
+                k.replace("transformer_encoder.", ""): backbone[k]
+                for k in backbone.keys()
+                if k.startswith("transformer_encoder")
+            }
+            if (
+                transformer_encoder_state.keys()
+                != self.transformer_encoder.state_dict().keys()
+            ):
+                logger.error(
+                    f"Mismatch in state dicts for transformer encoder: {self.transformer_encoder.state_dict().keys()}"
+                )
+                raise ValueError("Transformer encoder state dict keys do not match")
+            self.transformer_encoder.load_state_dict(transformer_encoder_state)
+            logger.info(f"Loaded transformer encoder from backbone")
+
+        if freeze_encoder:
+            logger.info("Freezing encoder")
+            logger.info("Freezing patch encoder")
+            for param in self.patch_encoder.parameters():
+                param.requires_grad = False
+            logger.info("Freezing pos encoder")
+            for param in self.pos_encoder.parameters():
+                param.requires_grad = False
+            logger.info("Freezing transformer encoder")
+            for param in self.transformer_encoder.parameters():
+                param.requires_grad = False
+
+        self.neighbor_alg = neighbor_alg
+        self.ball_radius = ball_radius
+        self.num_centers = num_centers  # Can be different to backbone num_centers
+        self.num_neighbors = num_neighbors  # Can be different to backbone num_neighbors
+        self.scale = scale  # Can be different to backbone scale
+        self.group = Group(
+            num_centers=self.num_centers,
+            num_neighbors=self.num_neighbors,
+            neighbor_alg=self.neighbor_alg,
+            radius=self.ball_radius / self.scale,
+        )
 
         self.loss = nn.CrossEntropyLoss()
         self.miou = MeanIoU(num_classes=cls_dim, input_format="index")
