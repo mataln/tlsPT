@@ -158,7 +158,9 @@ def main(config: DictConfig):
     if config.get("tune_schedule", None):
         schedule = config.tune_schedule
         wandb_logger.log_hyperparams({"tune_schedule": schedule})
-        schedule_callback = FinetuningScheduler(ft_schedule=schedule)
+        schedule_callback = FinetuningScheduler(
+            ft_schedule=schedule, epoch_transitions_only=True
+        )
         callbacks = [checkpoint_callback, lr_monitor, schedule_callback]
     else:
         callbacks = [checkpoint_callback, lr_monitor]
