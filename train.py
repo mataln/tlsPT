@@ -11,6 +11,7 @@ import lightning.pytorch as pl
 import numpy as np
 import omegaconf
 import torch
+from finetuning_scheduler import FinetuningScheduler
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.profilers import (
@@ -131,6 +132,7 @@ def main(config: DictConfig):
         }
     )
 
+    # CALLBACKS=========================================================================================================
     # Val checkpoint callback
     checkpoint_dir = f"checkpoints/{experiment_name}"
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -150,12 +152,25 @@ def main(config: DictConfig):
         logging_interval="step", log_momentum=False, log_weight_decay=False
     )
 
-    callbacks = [checkpoint_callback, lr_monitor]
+    if config.get("model.freeze_encoder", False) and config.get("tune_schedule", None):
+        raise ValueError("Cannot freeze encoder and use tune_schedule at the same time")
+
+    if config.get("tune_schedule", None):
+        schedule = config.tune_schedule
+        wandb_logger.log_hyperparams({"tune_schedule": schedule})
+        schedule_callback = FinetuningScheduler(ft_schedule=schedule)
+        callbacks = [checkpoint_callback, lr_monitor, schedule_callback]
+    else:
+        callbacks = [checkpoint_callback, lr_monitor]
+    # ==================================================================================================================
 
     # Pretrained model
     if config.get("from_checkpoint", None):
+        wandb_logger.log_hyperparams({"from_checkpoint": config.from_checkpoint})
         logger.info(f"Loading pretrained model from {config.from_checkpoint}")
-        backbone = torch.load(config.from_checkpoint, weights_only=False)["state_dict"]
+        backbone = torch.load(
+            config.from_checkpoint, weights_only=False, map_location=torch.device("cpu")
+        )["state_dict"]
         logger.info(f"Pretrained model loaded")
         model = hydra.utils.instantiate(config.model, backbone=backbone)
     else:

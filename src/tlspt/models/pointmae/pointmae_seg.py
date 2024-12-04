@@ -120,17 +120,7 @@ class PointMAESegmentation(L.LightningModule):
             self.transformer_encoder.load_state_dict(transformer_encoder_state)
             logger.info(f"Loaded transformer encoder from backbone")
 
-        if freeze_encoder:
-            logger.info("Freezing encoder")
-            logger.info("Freezing patch encoder")
-            for param in self.patch_encoder.parameters():
-                param.requires_grad = False
-            logger.info("Freezing pos encoder")
-            for param in self.pos_encoder.parameters():
-                param.requires_grad = False
-            logger.info("Freezing transformer encoder")
-            for param in self.transformer_encoder.parameters():
-                param.requires_grad = False
+        self.freeze_encoder = freeze_encoder
 
         self.neighbor_alg = neighbor_alg
         self.ball_radius = ball_radius
@@ -390,6 +380,24 @@ class PointMAESegmentation(L.LightningModule):
 
     def on_fit_start(self):
         self.logger.experiment.log(self.hparams)
+
+        logger.info(
+            f"Trainable params before freezing: {sum(p.numel() for p in self.parameters() if p.requires_grad)}"
+        )
+        if self.freeze_encoder:
+            logger.info("Freezing encoder")
+            logger.info("Freezing patch encoder")
+            for param in self.patch_encoder.parameters():
+                param.requires_grad = False
+            logger.info("Freezing pos encoder")
+            for param in self.pos_encoder.parameters():
+                param.requires_grad = False
+            logger.info("Freezing transformer encoder")
+            for param in self.transformer_encoder.parameters():
+                param.requires_grad = False
+        logger.info(
+            f"Trainable params after freezing: {sum(p.numel() for p in self.parameters() if p.requires_grad)}"
+        )
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
