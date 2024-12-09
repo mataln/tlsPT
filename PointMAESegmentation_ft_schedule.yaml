@@ -218,7 +218,7 @@
   - patch_encoder.conv1.0.weight
 14:
   epoch_transitions_only: true
-  max_transition_epoch: 250
+  max_transition_epoch: 300
   params:
   - pos_encoder.encoder.2.bias
   - pos_encoder.encoder.2.weight

@@ -167,7 +167,11 @@ def main(config: DictConfig):
     # ==================================================================================================================
 
     # Pretrained model
-    if config.get("from_checkpoint", None):
+    if config.get("resume_checkpoint", None) and config.get("from_checkpoint", None):
+        raise ValueError(
+            "Cannot resume training from ckpt as well as loading pretrained ckpt"
+        )
+    elif config.get("from_checkpoint", None):  # Pretrained from ckpt
         wandb_logger.log_hyperparams({"from_checkpoint": config.from_checkpoint})
         logger.info(f"Loading pretrained model from {config.from_checkpoint}")
         backbone = torch.load(
@@ -175,8 +179,11 @@ def main(config: DictConfig):
         )["state_dict"]
         logger.info(f"Pretrained model loaded")
         model = hydra.utils.instantiate(config.model, backbone=backbone)
-    else:
+    else:  # From scratch or resume
         model = hydra.utils.instantiate(config.model)
+        resume_ckpt = config.get("resume_checkpoint", None)
+        if resume_ckpt:
+            logger.info(f"Resuming training from {resume_ckpt}")
 
     # model = torch.compile(model)
 
@@ -197,7 +204,7 @@ def main(config: DictConfig):
         profiler=profiler,
     )
 
-    trainer.fit(model, datamodule)
+    trainer.fit(model, datamodule, ckpt_path=resume_ckpt)
 
 
 if __name__ == "__main__":
