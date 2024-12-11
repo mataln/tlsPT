@@ -167,7 +167,8 @@ def main(config: DictConfig):
     # ==================================================================================================================
 
     # Pretrained model
-    if config.get("resume_checkpoint", None) and config.get("from_checkpoint", None):
+    resume_ckpt = config.get("resume_checkpoint", None)
+    if resume_ckpt and config.get("from_checkpoint", None):
         raise ValueError(
             "Cannot resume training from ckpt as well as loading pretrained ckpt"
         )
@@ -181,7 +182,6 @@ def main(config: DictConfig):
         model = hydra.utils.instantiate(config.model, backbone=backbone)
     else:  # From scratch or resume
         model = hydra.utils.instantiate(config.model)
-        resume_ckpt = config.get("resume_checkpoint", None)
         if resume_ckpt:
             logger.info(f"Resuming training from {resume_ckpt}")
 
