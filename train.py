@@ -175,9 +175,7 @@ def main(config: DictConfig):
     elif config.get("from_checkpoint", None):  # Pretrained from ckpt
         wandb_logger.log_hyperparams({"from_checkpoint": config.from_checkpoint})
         logger.info(f"Loading pretrained model from {config.from_checkpoint}")
-        backbone = torch.load(
-            config.from_checkpoint, weights_only=False, map_location=torch.device("cpu")
-        )["state_dict"]
+        backbone = torch.load(config.from_checkpoint, weights_only=False)["state_dict"]
         logger.info(f"Pretrained model loaded")
         model = hydra.utils.instantiate(config.model, backbone=backbone)
     else:  # From scratch or resume
