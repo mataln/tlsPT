@@ -1,5 +1,6 @@
 # tlsPT
 
+This is the scratch implementation of PointMAE (arxiv.org/abs/2203.06604) that I used to generate the results for my presentation at AGU2024. 
 
 ## Installation
 
