@@ -19,7 +19,7 @@ Install Miniconda from [here](https://docs.conda.io/en/latest/miniconda.html) an
 ```bash
 conda env create -f environment.yml
 
-conda activate m3leo-env
+conda activate tlspt
 ```
 
 Next, install the package:
