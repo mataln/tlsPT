@@ -5,9 +5,9 @@ This is the scratch implementation of PointMAE (arxiv.org/abs/2203.06604) that I
 You can see read some fast-bullets about my findings, or see the slides [here](https://docs.google.com/presentation/d/1nZ2_TzjnOq7FMeOqkhAYEYjJ7wfqbaLoSft4on0UXvE/edit?usp=sharing). I delivered most of this work from scratch within ~6-8 weeks of the conference, so the graphics aren't super polished, but the information is there.
 
 Findings:
--MAE-style pretraining on patches of fixed radius improved performance in all cases.
--The improvement was similar or *greater* on regions that *weren't* in the pretraining data.
--Custom LR scheduler with gradual unfreezing improved performance quite a lot, likely due to not many labels.
+- MAE-style pretraining on patches of fixed radius improved performance in all cases.
+- The improvement was similar or *greater* on regions that *weren't* in the pretraining data.
+- Custom LR scheduler with gradual unfreezing improved performance quite a lot, likely due to not many labels.
 
 
 ![Alt text for the image](splash.PNG)
