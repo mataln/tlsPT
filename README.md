@@ -2,7 +2,7 @@
 
 This is the scratch implementation of PointMAE (arxiv.org/abs/2203.06604) that I used to generate the results for my presentation at AGU2024. This doesn't belong to a paper but I've made it public so I can share it with people who've asked.
 
-![Alt text for the image](splash.png)
+![Alt text for the image](splash.PNG)
 
 ## Installation
 
