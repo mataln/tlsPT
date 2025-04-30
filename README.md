@@ -2,7 +2,7 @@
 
 This is the scratch implementation of PointMAE (arxiv.org/abs/2203.06604) that I used to generate the results for my presentation at AGU2024. This doesn't belong to a paper but I've made it public so I can share it with people who've asked.
 
-You can see read some fast-bullets about my findings, or see the slides [here](https://docs.google.com/presentation/d/1nZ2_TzjnOq7FMeOqkhAYEYjJ7wfqbaLoSft4on0UXvE/edit?usp=sharing). I delivered most of this work from scratch within ~6-8 weeks of the conference, so the graphics aren't super polished, but the information is there.
+You can read some fast-bullets about my findings below, or see the slides [here](https://docs.google.com/presentation/d/1nZ2_TzjnOq7FMeOqkhAYEYjJ7wfqbaLoSft4on0UXvE/edit?usp=sharing). I delivered most of this work from scratch within ~6-8 weeks of the conference, so the graphics aren't super polished, but the information is there.
 
 Findings:
 - MAE-style pretraining on patches of fixed radius improved performance in all cases.
