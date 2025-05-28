@@ -12,7 +12,6 @@ import torch
 from loguru import logger
 from pytorch3d.io.utils import PathOrStr
 
-from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
 
 
@@ -183,11 +182,12 @@ class FileOctree:
         self,
         pointclouds: TLSPointclouds,
         out_folder: PathOrStr,
+        out_filename: str = "voxels.h5",
         insert_missing_features: bool = True,
         **kwargs,
     ):
         """
-        GPU-accelerated partitioning with sequential saving
+        GPU-accelerated partitioning with saving to a single HDF5 file per plot
         """
         if isinstance(pointclouds, list) or (
             isinstance(pointclouds, TLSPointclouds)
@@ -226,11 +226,14 @@ class FileOctree:
         # Ensure output directory exists
         os.makedirs(out_folder, exist_ok=True)
 
-        # Create single reader instance
-        reader = TR()
+        # Create the HDF5 file path
+        hdf5_path = os.path.join(out_folder, out_filename)
+
+        # Collect all voxel data first
+        voxel_data = {}
         num_saved = 0
 
-        logger.info("Partitioning and saving voxels")
+        logger.info("Partitioning voxels")
         for bbox, node_id in leaf_nodes:
             bbox_gpu = bbox.to(device)
 
@@ -241,35 +244,49 @@ class FileOctree:
 
             if torch.any(in_bounds):
                 # Get points for this voxel
-                voxel_points = points[in_bounds].cpu()
+                voxel_points = points[in_bounds].cpu().numpy()
                 voxel_normals = (
-                    normals[in_bounds].cpu() if normals is not None else None
+                    normals[in_bounds].cpu().numpy() if normals is not None else None
                 )
                 voxel_features = (
-                    features[in_bounds].cpu() if features is not None else None
+                    features[in_bounds].cpu().numpy() if features is not None else None
                 )
 
-                # Create TLSPointclouds object
-                data = TLSPointclouds(
-                    points=[voxel_points],
-                    normals=[voxel_normals] if voxel_normals is not None else None,
-                    features=[voxel_features] if voxel_features is not None else None,
-                    feature_names=pointclouds._feature_names,
-                )
-
-                # Save to file
-                out_path = os.path.join(out_folder, f"{node_id}.ply")
-                reader.save_pointcloud(data, out_path, binary=True)
+                # Store in dictionary with node_id as key
+                voxel_data[node_id] = {
+                    "points": voxel_points,
+                    "normals": voxel_normals,
+                    "features": voxel_features,
+                }
 
                 num_saved += 1
                 if num_saved % 100 == 0:
-                    logger.info(f"Saved {num_saved} voxels")
+                    logger.info(f"Processed {num_saved} voxels")
 
         # Clean up GPU memory
         del points, normals, features
         torch.cuda.empty_cache()
 
-        logger.info(f"Successfully saved {num_saved} voxels")
+        # Save all voxels to single HDF5 file
+        logger.info(f"Saving {num_saved} voxels to {hdf5_path}")
+
+        with h5py.File(hdf5_path, "w") as f:
+            # Create a group for each voxel
+            for node_id, data in voxel_data.items():
+                grp = f.create_group(node_id)
+
+                # Store points (always present)
+                grp.create_dataset("points", data=data["points"])
+
+                # Store normals if present
+                if data["normals"] is not None:
+                    grp.create_dataset("normals", data=data["normals"])
+
+                # Store features if present
+                if data["features"] is not None:
+                    grp.create_dataset("features", data=data["features"])
+
+        logger.info(f"Successfully saved {num_saved} voxels to {hdf5_path}")
 
     def save(self, out_folder: PathOrStr, out_fname: str):
         """

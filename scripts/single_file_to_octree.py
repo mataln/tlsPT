@@ -1,4 +1,4 @@
-# Script to convert a folder of individual tree point clouds (.ply) to an octree for that plot
+# Script to convert a plot point cloud to voxels
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def main():
     parser.add_argument("--input_folder", type=str, required=True)
     parser.add_argument("--output_folder", type=str, required=True)
     parser.add_argument("--octree-fname", type=str, default="octree.json")
+    parser.add_argument("--voxels-fname", type=str, default="voxels.h5")
     parser.add_argument("--min_scale", type=float, default=2.0)
-    parser.add_argument("--hdf5", action="store_true")
     parser.add_argument("--v", action="store_true")
 
     args = parser.parse_args()
@@ -27,10 +27,10 @@ def main():
     input_folder = args.input_folder
     output_folder = args.output_folder
     octree_fname = args.octree_fname
+    voxels_fname = args.voxels_fname
     min_scale = args.min_scale
 
     os.makedirs(output_folder, exist_ok=True)
-    os.makedirs(os.path.join(output_folder, "voxels"), exist_ok=True)
 
     logger.info(f"Searching for .ply files in {input_folder}")
     ply_files = [x for x in os.listdir(input_folder) if x.endswith(".ply")]
@@ -82,20 +82,14 @@ def main():
     print(f"Time taken: {time.time() - start}")
 
     logger.info("Saving octree voxels")
-    out_folder = (
-        os.path.join(output_folder, "voxels_hdf5")
-        if args.hdf5
-        else os.path.join(output_folder, "voxels")
-    )
-    os.makedirs(out_folder, exist_ok=True)
     octree.save_voxels(
         pointclouds,
-        out_folder=out_folder,
+        out_folder=output_folder,
+        out_filename=voxels_fname,
         insert_missing_features=True,
-        use_hdf5=args.hdf5,
     )
 
-    logger.info(f"Octree voxels saved to {output_folder}")
+    logger.info(f"Octree and voxels saved to {output_folder}")
 
     # Save to test.ply
     # reader.save_pointcloud(

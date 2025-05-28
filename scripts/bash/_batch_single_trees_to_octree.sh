@@ -23,12 +23,20 @@ for site in "${sites[@]}"; do
     relative_path="${input_folder#$input_base/}"  #e.g. single_trees/SPA01
     output_folder="$output_base/${relative_path}_2m"
     octree_fname="$plot_name.json"
+    voxels_fname="$plot_name.h5"
+
     echo "Input folder: $input_folder"
     echo "Output folder: $output_folder"
     echo "Octree file name: $octree_fname"
+    echo "Voxels file name: $voxels_fname"
 
     echo "Processing site: $site, Plot: $plot_name"
 
-    python scripts/single_trees_to_octree.py --input_folder "$input_folder" --output_folder "$output_folder" --octree-fname "$octree_fname" --min_scale 2.0
+    python scripts/single_trees_to_octree.py \
+      --input_folder "$input_folder" \
+      --output_folder "$output_folder" \
+      --octree-fname "$octree_fname" \
+      --voxels-fname "$voxels_fname" \
+      --min_scale 2.0
   done
 done

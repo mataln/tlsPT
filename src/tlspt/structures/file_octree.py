@@ -12,7 +12,6 @@ import torch
 from loguru import logger
 from pytorch3d.io.utils import PathOrStr
 
-from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
 
 
@@ -167,12 +166,13 @@ class FileOctree:
         self,
         pointclouds: TLSPointclouds | list[TLSPointclouds],
         out_folder: PathOrStr,
+        out_filename: str = "voxels.h5",
         insert_missing_features: bool = False,
-        use_hdf5: bool = False,
+        use_hdf5: bool = True,  # Now always True for new format
         **kwargs,
     ):
         """
-        Voxelizes pointclouds according to the octree and saves them to out_folder
+        Voxelizes pointclouds according to the octree and saves them to a single HDF5 file
         """
         if (
             isinstance(pointclouds, TLSPointclouds)
@@ -187,15 +187,14 @@ class FileOctree:
 
         assert len(pointclouds.points_list()) == 1, "Multiple scenes detected"
 
-        logger.info(f"Saving voxels to {out_folder}. HDF5: {use_hdf5}")
-        if use_hdf5:
-            logger.warning("Saving using HDF5. HDF5 files will not contain normals.")
+        logger.info(f"Saving voxels to {out_folder}")
 
-        if not use_hdf5:
-            reader = TR()
+        # Create queue for traversing octree
         queue = deque()
         queue.appendleft(self.root)
 
+        # Collect all voxel data first
+        voxel_data = {}
         num_saved = 0
 
         while queue:
@@ -205,52 +204,74 @@ class FileOctree:
                     node.bbox.T
                 )  # Returns bool array over pointclouds
                 if torch.sum(points_in_voxel) > 0:
+                    # Extract data for this voxel
+                    voxel_points = pointclouds.points_packed()[points_in_voxel].numpy()
+                    voxel_normals = (
+                        pointclouds.normals_packed()[points_in_voxel].numpy()
+                        if pointclouds.normals_packed() is not None
+                        else None
+                    )
+                    voxel_features = (
+                        pointclouds.features_packed()[points_in_voxel].numpy()
+                        if pointclouds.features_packed() is not None
+                        else None
+                    )
+
+                    # Shuffle to avoid problems with chunked indexing
+                    if (
+                        voxel_features is not None
+                        and voxel_points.shape[0] != voxel_features.shape[0]
+                    ):
+                        raise ValueError(
+                            "Number of points and features do not match. Something has gone very wrong elsewhere."
+                        )
+
+                    shuffled_idx = np.random.permutation(voxel_points.shape[0])
+                    voxel_points = voxel_points[shuffled_idx]
+                    if voxel_features is not None:
+                        voxel_features = voxel_features[shuffled_idx]
+                    if voxel_normals is not None:
+                        voxel_normals = voxel_normals[shuffled_idx]
+
+                    # Store in dictionary with node.id as key
+                    voxel_data[node.id] = {
+                        "points": voxel_points,
+                        "normals": voxel_normals,
+                        "features": voxel_features,
+                    }
+
                     num_saved += 1
-                    if not use_hdf5:
-                        data = TLSPointclouds(
-                            points=[pointclouds.points_packed()[points_in_voxel]],
-                            normals=[pointclouds.normals_packed()[points_in_voxel]]
-                            if pointclouds.normals_packed() is not None
-                            else None,
-                            features=[pointclouds.features_packed()[points_in_voxel]]
-                            if pointclouds.features_packed() is not None
-                            else None,
-                            feature_names=pointclouds._feature_names,
-                        )
-                        reader.save_pointcloud(
-                            data,
-                            os.path.join(out_folder, f"{node.id}.ply"),
-                            binary=True,
-                            **kwargs,
-                        )
-                    else:
-                        data = {
-                            "points": pointclouds.points_packed()[
-                                points_in_voxel
-                            ].numpy(),
-                            "features": pointclouds.features_packed()[
-                                points_in_voxel
-                            ].numpy()
-                            if pointclouds.features_packed() is not None
-                            else None,
-                        }
-
-                        # Shuffle to avoid problems with chunked indexing
-                        if data["points"].shape[0] != data["features"].shape[0]:
-                            raise ValueError(
-                                "Number of points and features do not match. Something has gone very wrong elsewhere."
-                            )
-
-                        shuffled_idx = np.random.permutation(data["points"].shape[0])
-                        data["points"] = data["points"][shuffled_idx]
-                        if data["features"] is not None:
-                            data["features"] = data["features"][shuffled_idx]
-
-                        self.save_hdf5(data, os.path.join(out_folder, f"{node.id}.h5"))
+                    if num_saved % 100 == 0:
+                        logger.info(f"Processed {num_saved} voxels")
             else:
                 queue.extendleft(node.children)
 
-        logger.info(f"Saved {num_saved} voxels")
+        # Ensure output directory exists
+        os.makedirs(out_folder, exist_ok=True)
+
+        # Create the HDF5 file path
+        hdf5_path = os.path.join(out_folder, out_filename)
+
+        # Save all voxels to single HDF5 file
+        logger.info(f"Saving {num_saved} voxels to {hdf5_path}")
+
+        with h5py.File(hdf5_path, "w") as f:
+            # Create a group for each voxel
+            for node_id, data in voxel_data.items():
+                grp = f.create_group(node_id)
+
+                # Store points (always present)
+                grp.create_dataset("points", data=data["points"])
+
+                # Store normals if present
+                if data["normals"] is not None:
+                    grp.create_dataset("normals", data=data["normals"])
+
+                # Store features if present
+                if data["features"] is not None:
+                    grp.create_dataset("features", data=data["features"])
+
+        logger.info(f"Successfully saved {num_saved} voxels to {hdf5_path}")
 
     def save(self, out_folder: PathOrStr, out_fname: str):
         """
