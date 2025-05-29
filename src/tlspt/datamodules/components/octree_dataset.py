@@ -13,12 +13,13 @@ from tlspt.datamodules.components.base_site import BaseSiteDataset
 from tlspt.io.tls_reader import TLSReader as TR
 from tlspt.structures.file_octree import FileOctree
 from tlspt.structures.pointclouds import TLSPointclouds, join_pointclouds_as_scene
-from tlspt.utils import Hdf5Normalizer, TlsNormalizer, get_hash
+from tlspt.utils import TlsNormalizer, get_hash
 
 
 class OctreeDataset(BaseSiteDataset):
     """
     Dataset for octree based file storage. One octree per plot.
+    Now loads from single HDF5 files per plot instead of individual voxel files.
     """
 
     def __init__(
@@ -59,7 +60,7 @@ class OctreeDataset(BaseSiteDataset):
             self.octrees = []
             self.nodes = []
             self.leaf_nodes = []
-            self.files_to_load = []
+            self.voxels_to_load = []
             self.reader = None
             self.normalizer = None
             return
@@ -88,24 +89,23 @@ class OctreeDataset(BaseSiteDataset):
             for i in range(len(self.octrees))
         ]
 
-        files_to_load = [
-            [
-                [
-                    os.path.join(self.plot_folders[i], "voxels", f"{leaf_node.id}.ply")
-                    for leaf_node in parent_node
-                ]
-                for parent_node in self.leaf_nodes[i]
-            ]
-            for i in range(len(self.octrees))
-        ]  # Size [num_plots][num nodes at scale][num leaves under node]
+        # 4. Build list of (hdf5_file, voxel_ids, octree_idx) for each item to load
+        self.voxels_to_load = []
+        for plot_idx, plot_folder in enumerate(self.plot_folders):
+            # Get the plot name from the JSON file
+            json_files = [f for f in os.listdir(plot_folder) if f.endswith(".json")]
+            if json_files:
+                plot_name = os.path.splitext(json_files[0])[0]
+                hdf5_path = os.path.join(plot_folder, f"{plot_name}.h5")
+            else:
+                raise ValueError(f"No JSON file found in {plot_folder}")
 
-        self.files_to_load = []
-        for plot_files in files_to_load:
-            self.files_to_load.extend(
-                plot_files
-            )  # Size [num_files][num leaves under node]
+            # For each node at the target scale in this plot
+            for node_leaves in self.leaf_nodes[plot_idx]:
+                voxel_ids = [leaf.id for leaf in node_leaves]
+                self.voxels_to_load.append((hdf5_path, voxel_ids, plot_idx))
 
-        # Init TLS reader
+        # Init TLS reader (still needed for preprocessing, but not for loading)
         self.reader = TR()
 
         # Init normalizer
@@ -179,7 +179,7 @@ class OctreeDataset(BaseSiteDataset):
         Preloads all data into memory
         """
         logger.info("Loading dataset into memory")
-        args = [(self, idx) for idx in range(len(self.files_to_load))]
+        args = [(self, idx) for idx in range(len(self.voxels_to_load))]
 
         if n_workers == -1:
             n_workers = mp.cpu_count() - 4
@@ -211,13 +211,45 @@ class OctreeDataset(BaseSiteDataset):
         """
         loads an item without transforms
         """
-        voxel_leaf_nodes = self.files_to_load[idx]
-        leaf_node_pointclouds = [
-            self.reader.load_pointcloud(f) for f in voxel_leaf_nodes
-        ]
-        pc = join_pointclouds_as_scene(
-            leaf_node_pointclouds, insert_missing_features=True
-        )
+        hdf5_path, voxel_ids, octree_idx = self.voxels_to_load[idx]
+
+        # Load voxels from HDF5 file
+        pointclouds_list = []
+
+        with h5py.File(hdf5_path, "r") as f:
+            for voxel_id in voxel_ids:
+                if voxel_id not in f:
+                    logger.warning(f"Voxel {voxel_id} not found in {hdf5_path}")
+                    continue
+
+                grp = f[voxel_id]
+
+                # Load points (always present)
+                points = torch.from_numpy(grp["points"][:]).float()
+
+                # Load normals if present
+                normals = None
+                if "normals" in grp:
+                    normals = torch.from_numpy(grp["normals"][:]).float()
+
+                # Load features if present
+                features = None
+                if "features" in grp:
+                    features = torch.from_numpy(grp["features"][:]).float()
+
+                # Create TLSPointclouds object
+                pc = TLSPointclouds(
+                    points=[points],
+                    normals=[normals] if normals is not None else None,
+                    features=[features] if features is not None else None,
+                    feature_names=self.octrees[octree_idx].feature_names
+                    if features is not None
+                    else None,
+                )
+                pointclouds_list.append(pc)
+
+        # Join all voxels for this item
+        pc = join_pointclouds_as_scene(pointclouds_list, insert_missing_features=True)
 
         if self.feature_names is None:
             return TLSPointclouds(points=pc.points_packed().unsqueeze(0), features=None)
@@ -267,7 +299,7 @@ class OctreeDataset(BaseSiteDataset):
         return datapoint
 
     def __len__(self):
-        return len(self.files_to_load)
+        return len(self.voxels_to_load)
 
 
 class OctreeDatasetHdf5(OctreeDataset):
