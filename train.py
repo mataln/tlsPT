@@ -164,6 +164,12 @@ def main(config: DictConfig):
         callbacks = [checkpoint_callback, lr_monitor, schedule_callback]
     else:
         callbacks = [checkpoint_callback, lr_monitor]
+
+    # Extra custom callbacks from config
+    # In train.py
+    if "callbacks" in config:
+        for callback_name, callback_config in config.callbacks.items():
+            callbacks.append(hydra.utils.instantiate(callback_config))
     # ==================================================================================================================
 
     # Pretrained model
@@ -182,6 +188,34 @@ def main(config: DictConfig):
         model = hydra.utils.instantiate(config.model)
         if resume_ckpt:
             logger.info(f"Resuming training from {resume_ckpt}")
+
+    # Extra logging for ablations
+    # Determine freeze type
+    if config.get("model.freeze_encoder", False):
+        freeze_type = "frozen"
+    elif config.get("tune_schedule", None):
+        freeze_type = "scheduled"
+    else:
+        freeze_type = "full"
+
+    # Extract training percentage
+    train_pct = config.datamodule.limit_train_pct
+
+    # Extract checkpoint info
+    checkpoint_name = config.get("from_checkpoint", "scratch")
+    if checkpoint_name != "scratch":
+        checkpoint_name = os.path.basename(checkpoint_name)
+
+    # Log experiment metadata
+    wandb_logger.log_hyperparams(
+        {
+            "ablation/freeze_type": freeze_type,
+            "ablation/train_pct": train_pct,
+            "ablation/checkpoint": checkpoint_name,
+            "ablation/run_index": config.get("run_index", 0),
+            "ablation/experiment": "label_efficiency",
+        }
+    )
 
     # model = torch.compile(model)
 
