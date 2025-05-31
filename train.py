@@ -191,11 +191,13 @@ def main(config: DictConfig):
     # Set monitoring metric based on task type
     if is_segmentation:
         filename_template = f"best_model_{experiment_name}_ep{{epoch:02d}}_bal_acc{{val/bal_acc_epoch:.4f}}"
+        logger.info("Detected segmentation task, monitoring balanced accuracy")
     else:
         # Pretraining task
         filename_template = (
             f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}"
         )
+        logger.info("Detected pretraining task, monitoring validation loss")
 
     # Callback for best model based on validation loss
     best_checkpoint_callback = ModelCheckpoint(
