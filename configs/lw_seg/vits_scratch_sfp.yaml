@@ -30,9 +30,11 @@ feature_names: ['scalar_truth']
 # In your config file
 callbacks:
   training_time:
-    _target_: tlspt.callbacks.TrainingTimeCallback
+    _target_: tlspt.callbacks.training_time.TrainingTimeCallback
   flops:
-    _target_: tlspt.callbacks.FLOPsCallback
+    _target_: tlspt.callbacks.flops.FLOPsCallback
+
+no_checkpoint: False
 
 datamodule:
   _target_: tlspt.datamodules.single_datamodule.SingleDataModule

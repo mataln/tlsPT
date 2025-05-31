@@ -137,12 +137,12 @@ def main(config: DictConfig):
     checkpoint_dir = f"checkpoints/{experiment_name}"
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    checkpoint_callback = ModelCheckpoint(
+    # Callback for best model based on validation loss
+    best_checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoint_dir,
         monitor="val/loss",
         mode="min",
         save_top_k=1,
-        save_last="link",
         save_weights_only=False,
         filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
         auto_insert_metric_name=False,
@@ -161,9 +161,13 @@ def main(config: DictConfig):
         schedule_callback = FinetuningScheduler(
             ft_schedule=schedule, epoch_transitions_only=True
         )
-        callbacks = [checkpoint_callback, lr_monitor, schedule_callback]
+        callbacks = [best_checkpoint_callback, lr_monitor, schedule_callback]
     else:
-        callbacks = [checkpoint_callback, lr_monitor]
+        callbacks = [best_checkpoint_callback, lr_monitor]
+
+    if config.get("no_checkpoint", False):
+        logger.info("Not saving checkpoints")
+        callbacks = [cb for cb in callbacks if not isinstance(cb, ModelCheckpoint)]
 
     # Extra custom callbacks from config
     # In train.py
