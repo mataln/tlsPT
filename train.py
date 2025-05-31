@@ -24,6 +24,8 @@ from lightning.pytorch.profilers import (
 from loguru import logger
 from omegaconf import DictConfig
 
+from tlspt.callbacks.final_checkpoint import SaveFinalCheckpoint
+
 
 @hydra.main(
     version_base="1.1",
@@ -132,50 +134,6 @@ def main(config: DictConfig):
         }
     )
 
-    # CALLBACKS=========================================================================================================
-    # Val checkpoint callback
-    checkpoint_dir = f"checkpoints/{experiment_name}"
-    os.makedirs(checkpoint_dir, exist_ok=True)
-
-    # Callback for best model based on validation loss
-    best_checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        monitor="val/loss",
-        mode="min",
-        save_top_k=1,
-        save_weights_only=False,
-        filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
-        auto_insert_metric_name=False,
-    )
-
-    lr_monitor = LearningRateMonitor(
-        logging_interval="step", log_momentum=False, log_weight_decay=False
-    )
-
-    if config.get("model.freeze_encoder", False) and config.get("tune_schedule", None):
-        raise ValueError("Cannot freeze encoder and use tune_schedule at the same time")
-
-    if config.get("tune_schedule", None):
-        schedule = config.tune_schedule
-        wandb_logger.log_hyperparams({"tune_schedule": schedule})
-        schedule_callback = FinetuningScheduler(
-            ft_schedule=schedule, epoch_transitions_only=True
-        )
-        callbacks = [best_checkpoint_callback, lr_monitor, schedule_callback]
-    else:
-        callbacks = [best_checkpoint_callback, lr_monitor]
-
-    if config.get("no_checkpoint", False):
-        logger.info("Not saving checkpoints")
-        callbacks = [cb for cb in callbacks if not isinstance(cb, ModelCheckpoint)]
-
-    # Extra custom callbacks from config
-    # In train.py
-    if "callbacks" in config:
-        for callback_name, callback_config in config.callbacks.items():
-            callbacks.append(hydra.utils.instantiate(callback_config))
-    # ==================================================================================================================
-
     # Pretrained model
     resume_ckpt = config.get("resume_checkpoint", None)
     if resume_ckpt and config.get("from_checkpoint", None):
@@ -220,6 +178,74 @@ def main(config: DictConfig):
             "ablation/experiment": "label_efficiency",
         }
     )
+
+    # CALLBACKS=========================================================================================================
+    # Val checkpoint callback
+    checkpoint_dir = f"checkpoints/{experiment_name}"
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Determine if this is a segmentation or pretraining task
+    model_class_name = model.__class__.__name__
+    is_segmentation = "Segmentation" in model_class_name
+
+    # Set monitoring metric based on task type
+    if is_segmentation:
+        filename_template = f"best_model_{experiment_name}_ep{{epoch:02d}}_bal_acc{{val/bal_acc_epoch:.4f}}"
+    else:
+        # Pretraining task
+        filename_template = (
+            f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}"
+        )
+
+    # Callback for best model based on validation loss
+    best_checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        monitor="val/loss",
+        mode="min",
+        save_top_k=1,
+        save_weights_only=False,
+        filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
+        auto_insert_metric_name=False,
+    )
+
+    final_checkpoint_callback = SaveFinalCheckpoint(
+        dirpath=checkpoint_dir, experiment_name=experiment_name
+    )
+
+    lr_monitor = LearningRateMonitor(
+        logging_interval="step", log_momentum=False, log_weight_decay=False
+    )
+
+    if config.get("model.freeze_encoder", False) and config.get("tune_schedule", None):
+        raise ValueError("Cannot freeze encoder and use tune_schedule at the same time")
+
+    if config.get("tune_schedule", None):
+        schedule = config.tune_schedule
+        wandb_logger.log_hyperparams({"tune_schedule": schedule})
+        schedule_callback = FinetuningScheduler(
+            ft_schedule=schedule,
+            epoch_transitions_only=True,
+            restore_best=config.get("restore_best", False),
+        )
+        callbacks = [
+            best_checkpoint_callback,
+            final_checkpoint_callback,
+            lr_monitor,
+            schedule_callback,
+        ]
+    else:
+        callbacks = [best_checkpoint_callback, final_checkpoint_callback, lr_monitor]
+
+    if config.get("no_checkpoint", False):
+        logger.info("Not saving checkpoints")
+        callbacks = [cb for cb in callbacks if not isinstance(cb, ModelCheckpoint)]
+
+    # Extra custom callbacks from config
+    # In train.py
+    if "callbacks" in config:
+        for callback_name, callback_config in config.callbacks.items():
+            callbacks.append(hydra.utils.instantiate(callback_config))
+    # ==================================================================================================================
 
     # model = torch.compile(model)
 

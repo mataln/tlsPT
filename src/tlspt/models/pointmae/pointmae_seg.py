@@ -400,7 +400,7 @@ class PointMAESegmentation(L.LightningModule):
         )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.0001, weight_decay=0.05)
         # return optimizer
         warmup_epochs = self.warmup_epochs
 
