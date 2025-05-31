@@ -15,7 +15,9 @@ class TrainingTimeCallback(pl.Callback):
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         self.train_time_seconds += time.time() - self.batch_start
-        trainer.logger.log_metrics({"train_time_seconds": self.train_time_seconds})
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        trainer.logger.log_metrics({"train_time_epoch": self.train_time_seconds})
 
     def on_fit_end(self, trainer, pl_module):
         trainer.logger.log_metrics({"train_time_hours": self.train_time_seconds / 3600})
