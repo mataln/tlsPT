@@ -191,22 +191,26 @@ def main(config: DictConfig):
     # Set monitoring metric based on task type
     if is_segmentation:
         filename_template = f"best_model_{experiment_name}_ep{{epoch:02d}}_bal_acc{{val/bal_acc_epoch:.4f}}"
+        monitor_metric = "val/bal_acc_epoch"
+        monitor_mode = "max"
         logger.info("Detected segmentation task, monitoring balanced accuracy")
     else:
         # Pretraining task
         filename_template = (
             f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}"
         )
+        monitor_metric = "val/loss"
+        monitor_mode = "min"
         logger.info("Detected pretraining task, monitoring validation loss")
 
     # Callback for best model based on validation loss
     best_checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoint_dir,
-        monitor="val/loss",
-        mode="min",
+        monitor=monitor_metric,
+        mode=monitor_mode,
         save_top_k=1,
         save_weights_only=False,
-        filename=f"best_model_{experiment_name}_ep{{epoch:02d}}_loss{{val/loss:.4f}}",
+        filename=filename_template,
         auto_insert_metric_name=False,
     )
 
@@ -269,6 +273,78 @@ def main(config: DictConfig):
     )
 
     trainer.fit(model, datamodule, ckpt_path=resume_ckpt)
+
+    # Evaluate all checkpoints on test set (only on global rank 0 to avoid duplicates)
+    if global_rank == 0:
+        logger.info("Evaluating checkpoints on test set...")
+
+        checkpoint_configs = [
+            {
+                "name": "first_epoch",
+                "path": os.path.join(checkpoint_dir, "first.ckpt"),
+                "suffix": "_first",
+            },
+            {
+                "name": "last_epoch",
+                "path": os.path.join(checkpoint_dir, "last.ckpt"),
+                "suffix": "_last",
+            },
+            {
+                "name": "best_model",
+                "path": best_checkpoint_callback.best_model_path,
+                "suffix": "_best",
+            },
+        ]
+
+        for ckpt_config in checkpoint_configs:
+            ckpt_path = ckpt_config["path"]
+            ckpt_name = ckpt_config["name"]
+            suffix = ckpt_config["suffix"]
+
+            if ckpt_path and os.path.exists(ckpt_path):
+                logger.info(f"Evaluating {ckpt_name} checkpoint: {ckpt_path}")
+
+                # Load the checkpoint
+                test_model = model.__class__.load_from_checkpoint(
+                    ckpt_path,
+                    ball_radius=model.ball_radius,
+                    scale=model.scale,
+                    neighbor_alg=model.neighbor_alg,
+                    num_centers=model.num_centers,
+                    num_neighbors=model.num_neighbors,
+                )
+
+                # Use original trainer but disable logging
+                original_logger = trainer.logger
+                trainer.logger = False
+
+                test_results = trainer.test(test_model, datamodule, verbose=False)
+
+                # Restore original logger
+                trainer.logger = original_logger
+
+                # Log results with test/ prefix and checkpoint suffix
+                if test_results and len(test_results) > 0:
+                    test_metrics = test_results[0]
+                    prefixed_metrics = {}
+
+                    for key, value in test_metrics.items():
+                        # Remove 'test/' prefix if it exists, then add our format
+                        clean_key = key.replace("test/", "")
+                        # Use format: test/metric_checkpoint (e.g., test/loss_first, test/acc_best)
+                        prefixed_key = f"test/{clean_key}{suffix}"
+                        prefixed_metrics[prefixed_key] = value
+
+                    # Log to wandb
+                    wandb_logger.log_metrics(prefixed_metrics)
+                    logger.info(f"Logged {ckpt_name} test metrics: {prefixed_metrics}")
+                else:
+                    logger.warning(f"No test results returned for {ckpt_name}")
+
+            else:
+                logger.warning(f"Checkpoint not found: {ckpt_path}")
+
+        logger.info("Test evaluation complete for all checkpoints")
 
 
 if __name__ == "__main__":
