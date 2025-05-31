@@ -151,6 +151,18 @@ def main(config: DictConfig):
         if resume_ckpt:
             logger.info(f"Resuming training from {resume_ckpt}")
 
+    learning_rate = getattr(model, "learning_rate", None)
+
+    wandb_logger.log_hyperparams(
+        {
+            "learning_rate": learning_rate,
+            "batch_size": config.datamodule.batch_size,
+            "num_nodes": num_nodes,
+            "strategy": strategy,
+            "devices": devices,
+        }
+    )
+
     # Extra logging for ablations
     # Determine freeze type
     if config.get("model.freeze_encoder", False):

@@ -46,6 +46,7 @@ class PointMAESegmentation(L.LightningModule):
         warmup_epochs: int = 10,
         prop_mlp_dim: int = 1024,
         freeze_encoder: bool = False,
+        learning_rate: float = 0.001,
     ):
         super().__init__()
 
@@ -121,6 +122,7 @@ class PointMAESegmentation(L.LightningModule):
             logger.info(f"Loaded transformer encoder from backbone")
 
         self.freeze_encoder = freeze_encoder
+        self.learning_rate = learning_rate
 
         self.neighbor_alg = neighbor_alg
         self.ball_radius = ball_radius
@@ -400,7 +402,9 @@ class PointMAESegmentation(L.LightningModule):
         )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=self.learning_rate, weight_decay=0.05
+        )
         # return optimizer
         warmup_epochs = self.warmup_epochs
 
