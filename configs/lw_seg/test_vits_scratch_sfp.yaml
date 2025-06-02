@@ -6,7 +6,7 @@ experiment_name: null
 
 hydra:
   run:
-    dir: /home/mja78/rds/hpc-work/hydra
+    dir: /home/mja78/rds/hpc-work/hydra/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S}
   job:
     chdir: false
 
