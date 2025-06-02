@@ -35,6 +35,7 @@
   - transformer_encoder.blocks.11.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 20
+  lr: 1.0e-03
 2:
   params:
   - transformer_encoder.blocks.10.attn.proj.bias
@@ -50,6 +51,7 @@
   - transformer_encoder.blocks.10.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 35
+  lr: 1.0e-03
 3:
   params:
   - transformer_encoder.blocks.9.attn.proj.bias
@@ -65,6 +67,7 @@
   - transformer_encoder.blocks.9.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 50
+  lr: 1.0e-03
 4:
   params:
   - transformer_encoder.blocks.8.attn.proj.bias
@@ -80,6 +83,7 @@
   - transformer_encoder.blocks.8.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 65
+  lr: 1.0e-03
 5:
   params:
   - transformer_encoder.blocks.7.attn.proj.bias
@@ -95,6 +99,7 @@
   - transformer_encoder.blocks.7.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 80
+  lr: 1.0e-03
 6:
   params:
   - transformer_encoder.blocks.6.attn.proj.bias
@@ -110,6 +115,7 @@
   - transformer_encoder.blocks.6.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 95
+  lr: 1.0e-03
 7:
   params:
   - transformer_encoder.blocks.5.attn.proj.bias
@@ -125,6 +131,7 @@
   - transformer_encoder.blocks.5.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 110
+  lr: 1.0e-03
 8:
   params:
   - transformer_encoder.blocks.4.attn.proj.bias
@@ -140,6 +147,7 @@
   - transformer_encoder.blocks.4.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 125
+  lr: 1.0e-03
 9:
   params:
   - transformer_encoder.blocks.3.attn.proj.bias
@@ -155,6 +163,7 @@
   - transformer_encoder.blocks.3.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 140
+  lr: 1.0e-03
 10:
   params:
   - transformer_encoder.blocks.2.attn.proj.bias
@@ -170,6 +179,7 @@
   - transformer_encoder.blocks.2.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 160
+  lr: 1.0e-03
 11:
   params:
   - transformer_encoder.blocks.1.attn.proj.bias
@@ -185,6 +195,7 @@
   - transformer_encoder.blocks.1.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 180
+  lr: 1.0e-03
 12:
   params:
   - transformer_encoder.blocks.0.attn.proj.bias
@@ -200,6 +211,7 @@
   - transformer_encoder.blocks.0.norm1.weight
   epoch_transitions_only: True
   max_transition_epoch: 200
+  lr: 1.0e-03
 13:
   params:
   - patch_encoder.conv2.3.bias
@@ -216,6 +228,7 @@
   - patch_encoder.conv1.0.weight
   epoch_transitions_only: True
   max_transition_epoch: 220
+  lr: 1.0e-03
 14:
   params:
   - pos_encoder.encoder.2.bias
@@ -224,3 +237,4 @@
   - pos_encoder.encoder.0.weight
   epoch_transitions_only: True
   max_transition_epoch: 300
+  lr: 1.0e-03
