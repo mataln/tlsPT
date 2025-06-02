@@ -170,3 +170,4 @@ widi*
 wandb/
 logs
 checkpoints_saved
+/*_ft_schedule.yaml
