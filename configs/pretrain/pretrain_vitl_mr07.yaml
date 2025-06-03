@@ -1,5 +1,5 @@
 wandb:
-  project: 2025_tlspt_test
+  project: PRETRAIN_TLSPT_2025
   entity: mja2106
   mode: online
 experiment_name: test_pretrain
@@ -98,16 +98,17 @@ model:
   warmup_epochs: 10
   num_centers: 196
   num_neighbors: 32
-  embedding_dim: 1024 #Width
+  embedding_dim: 1024  # PointNet embedding
   mask_ratio: 0.7
   mask_type: random
+  learning_rate: 0.0001
   transencoder_config:
-    embed_dim: ${model.embedding_dim}
-    depth: 24 #Depth
-    num_heads: 16 #Heads
-    mlp_ratio: 4.0 #MLP
+    embed_dim: 1024  # ViT-Large width
+    depth: 24
+    num_heads: 16
+    mlp_ratio: 4.0
   transdecoder_config:
-    embed_dim: ${model.embedding_dim}
-    depth: 4 #Depth
-    num_heads: 8 #Heads
-    mlp_ratio: 4.0 #MLP
+    embed_dim: 512  # Half the encoder width (MAE-style)
+    depth: 4
+    num_heads: 8  # Keeps head dim at 64 (512/8 = 64)
+    mlp_ratio: 4.0

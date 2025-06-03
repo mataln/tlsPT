@@ -66,8 +66,10 @@ class PointMAE(L.LightningModule):
         self.transencoder_config = transencoder_config
         self.transdecoder_config = transdecoder_config
         self.trans_dim = transencoder_config["embed_dim"]
-        if transdecoder_config["embed_dim"] != transencoder_config["embed_dim"]:
-            raise ValueError("Encoder and decoder dimensions must match")
+        self.encoder_dim = self.trans_dim
+        self.decoder_dim = transdecoder_config["embed_dim"]
+        # if transdecoder_config["embed_dim"] != transencoder_config["embed_dim"]:
+        #     raise ValueError("Encoder and decoder dimensions must match")
         self.transdecoder_config = transdecoder_config
         self.group = Group(
             num_centers=self.num_centers,
@@ -83,10 +85,16 @@ class PointMAE(L.LightningModule):
         self.transformer_encoder = TransformerEncoder(**self.transencoder_config)
         self.norm = nn.LayerNorm(self.trans_dim)
         self.mask_token = nn.Parameter(torch.randn(1, 1, self.trans_dim))
+
+        if self.decoder_dim != self.encoder_dim:
+            self.encoder_to_decoder_proj = nn.Linear(self.encoder_dim, self.decoder_dim)
+        else:
+            self.encoder_to_decoder_proj = None
+
         self.transformer_decoder = TransformerDecoder(**transdecoder_config)
 
         self.reconstructor = nn.Conv1d(
-            self.trans_dim, 3 * self.num_neighbors, 1
+            self.decoder_dim, 3 * self.num_neighbors, 1
         )  # Num neighbors points per group.
         self.loss = chamfer_distance
         self.total_epochs = total_epochs
@@ -160,6 +168,10 @@ class PointMAE(L.LightningModule):
         full_pos_embeddings = torch.cat(
             (vis_pos_embeddings, masked_pos_embeddings), dim=1
         )
+
+        if self.encoder_to_decoder_proj is not None:
+            x_full = self.encoder_to_decoder_proj(x_full)
+            full_pos_embeddings = self.encoder_to_decoder_proj(full_pos_embeddings)
 
         x_hat = self.forward_decoder(
             x_full, full_pos_embeddings, N
