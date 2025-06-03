@@ -50,6 +50,7 @@ class PointMAE(L.LightningModule):
         },
         total_epochs: int = 300,
         warmup_epochs: int = 10,
+        learning_rate: float = 0.001,
     ):
         super().__init__()
         self.num_centers = num_centers
@@ -91,6 +92,7 @@ class PointMAE(L.LightningModule):
         self.total_epochs = total_epochs
         self.warmup_epochs = min(warmup_epochs, total_epochs)
         self.warmup_epochs = max(self.warmup_epochs, 1)
+        self.learning_rate = learning_rate
 
         logger.info(
             f"Cosine scheduler will use {self.total_epochs} total epochs and {self.warmup_epochs} warmup epochs"
@@ -201,7 +203,9 @@ class PointMAE(L.LightningModule):
         self.logger.experiment.log(self.hparams)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.05)
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=self.learning_rate, weight_decay=0.05
+        )
         # return optimizer
         warmup_epochs = self.warmup_epochs
 
