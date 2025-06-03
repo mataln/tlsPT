@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import random
@@ -165,12 +166,14 @@ def main(config: DictConfig):
 
     # Extra logging for ablations
     # Determine freeze type
-    if config.get("model.freeze_encoder", False):
+    if config.get("model", {}).get("freeze_encoder", False):
         freeze_type = "frozen"
     elif config.get("tune_schedule", None):
         freeze_type = "scheduled"
-    else:
+    elif config.get("from_checkpoint", None):
         freeze_type = "full"
+    else:
+        freeze_type = "scratch"
 
     # Extract training percentage
     train_pct = config.datamodule.limit_train_pct
@@ -290,6 +293,20 @@ def main(config: DictConfig):
     if global_rank == 0:
         logger.info("Evaluating checkpoints on test set...")
 
+        # Search for best checkpoint
+        best_checkpoint_pattern = os.path.join(checkpoint_dir, "best_model_*.ckpt")
+        best_checkpoint_files = glob.glob(best_checkpoint_pattern)
+
+        best_checkpoint_path = None
+        if best_checkpoint_files:
+            # If multiple, take the most recent one
+            best_checkpoint_path = max(best_checkpoint_files, key=os.path.getmtime)
+            logger.info(f"Found best checkpoint: {best_checkpoint_path}")
+        else:
+            logger.warning(
+                f"No best checkpoint found matching pattern: {best_checkpoint_pattern}"
+            )
+
         checkpoint_configs = [
             {
                 "name": "first_epoch",
@@ -303,7 +320,7 @@ def main(config: DictConfig):
             },
             {
                 "name": "best_model",
-                "path": best_checkpoint_callback.best_model_path,
+                "path": best_checkpoint_path,
                 "suffix": "_best",
             },
         ]
