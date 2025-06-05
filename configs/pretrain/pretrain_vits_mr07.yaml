@@ -101,7 +101,7 @@ model:
   embedding_dim: 384 #Width
   mask_ratio: 0.7
   mask_type: random
-  learning_rate: 0.0001
+  learning_rate: 0.001
   transencoder_config:
     embed_dim: ${model.embedding_dim}
     depth: 12 #Depth

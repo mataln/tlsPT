@@ -314,6 +314,11 @@ def main(config: DictConfig):
                 "suffix": "_first",
             },
             {
+                "name": "step_97",
+                "path": os.path.join(checkpoint_dir, "step_97.ckpt"),
+                "suffix": "_step97",
+            },
+            {
                 "name": "last_epoch",
                 "path": os.path.join(checkpoint_dir, "last.ckpt"),
                 "suffix": "_last",
