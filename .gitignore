@@ -172,3 +172,4 @@ logs
 checkpoints_saved
 /*_ft_schedule.yaml
 plots/saved_plots
+/*.csv

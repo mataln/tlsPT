@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import gc
 import glob
 import os
 
@@ -17,47 +19,51 @@ def evaluate_checkpoint_iou_only(checkpoint_path, model_params, datamodule):
     """Evaluate only IoU metrics for a checkpoint."""
     from tlspt.models.pointmae.pointmae_seg import PointMAESegmentation
 
-    try:
-        model = PointMAESegmentation.load_from_checkpoint(
-            checkpoint_path, **model_params
-        )
-        model.eval()
-        model = model.cuda() if torch.cuda.is_available() else model
+    model = PointMAESegmentation.load_from_checkpoint(checkpoint_path, **model_params)
+    model.eval()
+    model = model.cuda() if torch.cuda.is_available() else model
 
-        # Prepare the datamodule
-        datamodule.prepare_data()
-        datamodule.setup(stage="test")
+    # Prepare the datamodule
+    datamodule.prepare_data()
+    datamodule.setup(stage="test")
 
-        # Manually compute IoU over test set
-        total_miou = 0
-        num_batches = 0
+    # Override num_workers to prevent file descriptor exhaustion
+    original_num_workers = datamodule.hparams.num_workers
+    datamodule.hparams.num_workers = 2  # Use minimal workers for evaluation
 
-        with torch.no_grad():
-            for batch in datamodule.test_dataloader():
-                # Move batch to device
-                batch = {
-                    k: v.cuda() if torch.cuda.is_available() else v
-                    for k, v in batch.items()
-                }
+    # Manually compute IoU over test set
+    total_miou = 0
+    num_batches = 0
 
-                # Get predictions
-                x_hat = model(batch)  # Logits (batch, N, cls_dim)
-                x_pred = torch.argmax(
-                    x_hat, dim=2
-                ).long()  # Predicted classes (batch, N)
-                x_gt = batch["features"].squeeze(-1).long()  # Ground truth (batch, N)
+    with torch.no_grad():
+        test_loader = datamodule.test_dataloader()
+        for batch in test_loader:
+            # Move batch to device
+            batch = {
+                k: v.cuda() if torch.cuda.is_available() else v
+                for k, v in batch.items()
+            }
 
-                # Use the model's corrected IoU calculation
-                batch_miou = model.get_miou(x_pred, x_gt)
-                total_miou += batch_miou.item()
-                num_batches += 1
+            # Get predictions
+            x_hat = model(batch)  # Logits (batch, N, cls_dim)
+            x_pred = torch.argmax(x_hat, dim=2).long()  # Predicted classes (batch, N)
+            x_gt = batch["features"].squeeze(-1).long()  # Ground truth (batch, N)
 
-        final_miou = total_miou / num_batches if num_batches > 0 else 0
-        return final_miou
+            # Use the model's corrected IoU calculation
+            batch_miou = model.get_miou(x_pred, x_gt)
+            total_miou += batch_miou.item()
+            num_batches += 1
 
-    except Exception as e:
-        logger.error(f"Failed to evaluate {checkpoint_path}: {e}")
-        return None
+    # Restore original num_workers
+    datamodule.hparams.num_workers = original_num_workers
+
+    # Clean up to free resources
+    del test_loader
+    del model
+    torch.cuda.empty_cache()
+
+    final_miou = total_miou / num_batches if num_batches > 0 else 0
+    return final_miou
 
 
 def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
@@ -79,7 +85,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         checkpoint_dir = experiment_name
         if not os.path.exists(checkpoint_dir):
             logger.error(f"Checkpoint directory not found for run {run_id}")
-            return False
+            return False, []
 
     # Define checkpoint configs
     checkpoint_configs = [
@@ -120,7 +126,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
 
     if not existing_checkpoints:
         logger.warning(f"No checkpoints found for run {run_id}")
-        return False
+        return False, []
 
     # Get current IoU metrics
     current_iou_metrics = {
@@ -128,6 +134,10 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         for k, v in run.summary.items()
         if k.startswith("test/") and ("miou" in k.lower() or "iou" in k.lower())
     }
+
+    # Debug: show what metrics were found
+    if current_iou_metrics:
+        logger.info(f"Found IoU metrics in run: {list(current_iou_metrics.keys())}")
 
     if dry_run:
         logger.info(
@@ -141,7 +151,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
             for key, value in sorted(current_iou_metrics.items()):
                 logger.info(f"  - {key}: {value:.4f}")
 
-        return True
+        return True, []
 
     # Recreate datamodule
     datamodule_config = OmegaConf.create(run_config["datamodule"])
@@ -167,16 +177,28 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         )
 
         if corrected_miou is not None:
-            # Original metric names
+            # Original metric names - try both patterns
             miou_key = f"test/miou{cfg['suffix']}"
             miou_epoch_key = f"test/miou_epoch{cfg['suffix']}"
 
-            # Get old values if they exist
-            old_miou = current_iou_metrics.get(miou_key, None)
-            current_iou_metrics.get(miou_epoch_key, None)
+            # Get old values if they exist - check both patterns
+            old_miou = current_iou_metrics.get(miou_epoch_key, None)
+            if old_miou is None:
+                old_miou = current_iou_metrics.get(miou_key, None)
+
+            # Debug logging
+            logger.info(
+                f"  - Looking for old value with keys: {miou_epoch_key} or {miou_key}"
+            )
+            if old_miou is not None:
+                logger.info(f"  - Found old value: {old_miou:.4f}")
+            else:
+                logger.info(f"  - No old value found")
 
             comparison_data.append(
                 {
+                    "run_id": run_id,
+                    "run_name": experiment_name,
                     "checkpoint": cfg["name"],
                     "old_miou": old_miou,
                     "new_miou": corrected_miou,
@@ -195,6 +217,9 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         else:
             logger.warning(f"  - Failed to evaluate {cfg['name']}")
 
+        # Force garbage collection between checkpoints
+        gc.collect()
+
     if damp_run:
         logger.info("\n[DAMP RUN] Computed new IoU values but NOT updating W&B:")
         logger.info("-" * 60)
@@ -212,7 +237,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
             logger.info(
                 f"{comp['checkpoint']:<15} {old_str:<10} {comp['new_miou']:.4f}{'':>6} {diff_str:<10}"
             )
-        return True
+        return True, comparison_data
 
     # Resume W&B run and update metrics
     wandb.init(id=run_id, resume="must", project="TUNE_TLSPT_2025", entity="mja2106")
@@ -239,7 +264,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         wandb.log({"iou_correction_applied": True})
 
     wandb.finish()
-    return True
+    return True, comparison_data
 
 
 def find_runs_to_reevaluate(dry_run=False, limit=None):
@@ -300,7 +325,21 @@ def main():
     )
     parser.add_argument("--run-id", type=str, help="Re-evaluate a specific run ID only")
     parser.add_argument("--limit", type=int, help="Limit number of runs to process")
+    parser.add_argument(
+        "--output-csv",
+        type=str,
+        default="iou_correction_summary.csv",
+        help="Output CSV file for summary (default: iou_correction_summary.csv)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
     args = parser.parse_args()
+
+    if args.debug:
+        logger.add(lambda msg: print(msg), level="DEBUG")
 
     if args.dry_run:
         logger.info("=== DRY RUN MODE - No changes will be made ===")
@@ -318,22 +357,54 @@ def main():
 
     successful = 0
     failed = 0
+    all_comparisons = []
 
     for i, run_id in enumerate(runs_to_evaluate):
         logger.info(f"\nProcessing run {i+1}/{len(runs_to_evaluate)}")
-        try:
-            if evaluate_all_checkpoints_for_run(
-                run_id, dry_run=args.dry_run, damp_run=args.damp_run
-            ):
-                successful += 1
-            else:
-                failed += 1
-        except Exception as e:
-            logger.error(f"Failed to evaluate run {run_id}: {e}")
+        success, comparison_data = evaluate_all_checkpoints_for_run(
+            run_id, dry_run=args.dry_run, damp_run=args.damp_run
+        )
+        if success:
+            successful += 1
+            all_comparisons.extend(comparison_data)
+        else:
             failed += 1
-            continue
 
     logger.info(f"\nSummary: {successful} successful, {failed} failed")
+
+    # Write CSV summary if we have comparison data
+    if all_comparisons and (args.damp_run or not args.dry_run):
+        with open(args.output_csv, "w", newline="") as csvfile:
+            fieldnames = [
+                "run_id",
+                "run_name",
+                "checkpoint",
+                "old_miou",
+                "new_miou",
+                "difference",
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            for comp in all_comparisons:
+                writer.writerow(comp)
+
+        logger.info(f"\nSaved summary to {args.output_csv}")
+
+        # Also print summary statistics
+        if any(comp["old_miou"] is not None for comp in all_comparisons):
+            differences = [
+                comp["difference"]
+                for comp in all_comparisons
+                if comp["difference"] is not None
+            ]
+            if differences:
+                logger.info(f"\nCorrection Statistics:")
+                logger.info(
+                    f"  - Mean difference: {sum(differences)/len(differences):.4f}"
+                )
+                logger.info(f"  - Min difference: {min(differences):.4f}")
+                logger.info(f"  - Max difference: {max(differences):.4f}")
 
     if args.dry_run:
         logger.info("\n=== DRY RUN COMPLETE - No changes were made ===")

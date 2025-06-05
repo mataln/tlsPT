@@ -294,10 +294,10 @@ class PointMAESegmentation(L.LightningModule):
 
                 if gt_count == 0 and pred_count == 0:
                     # Class not present in both - perfect score
-                    part_ious.append(1.0)
+                    part_ious.append(torch.tensor(1.0, device=x_pred.device))
                 elif gt_count == 0 or pred_count == 0:
                     # Class in one but not other - zero score
-                    part_ious.append(0.0)
+                    part_ious.append(torch.tensor(0.0, device=x_pred.device))
                 else:
                     # Standard IoU calculation
                     intersection = (gt_mask & pred_mask).sum().float()

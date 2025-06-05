@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 from loguru import logger
 from pytorch3d.ops import sample_farthest_points
 from torchvision.transforms import Compose
@@ -210,16 +211,55 @@ class FillNa:
 
 
 class UniformTLSSampler:
-    def __init__(self, num_points):
+    def __init__(self, num_points, augment=False):
         self.num_points = num_points
-
-        self.transform = Compose(
-            [
-                UniformDownsample(self.num_points, replace=False),  # Changes lengths
-                FillNa(["points", "features"], fill_value=0),  # Replace NaN with 0
-                Padder(self.num_points),  # Does not change lengths
-            ]
-        )
+        self.augment = augment
+        if self.augment:
+            self.transform = Compose(
+                [
+                    UniformDownsample(
+                        self.num_points, replace=False
+                    ),  # Changes lengths
+                    RandomScale(),  # Changes point coordinates
+                    RandomShift(),  # Changes point coordinates
+                    FillNa(["points", "features"], fill_value=0),  # Replace NaN with 0
+                    Padder(self.num_points),  # Does not change lengths
+                ]
+            )
+        else:
+            self.transform = Compose(
+                [
+                    UniformDownsample(
+                        self.num_points, replace=False
+                    ),  # Changes lengths
+                    FillNa(["points", "features"], fill_value=0),  # Replace NaN with 0
+                    Padder(self.num_points),  # Does not change lengths
+                ]
+            )
 
     def __call__(self, datapoint: dict) -> dict:
         return self.transform(datapoint)
+
+
+class RandomScale:
+    def __init__(self, scale_low=0.8, scale_high=1.25):
+        self.scale_low = scale_low
+        self.scale_high = scale_high
+
+    def __call__(self, datapoint: dict) -> dict:
+        scale = (
+            torch.rand(1).item() * (self.scale_high - self.scale_low) + self.scale_low
+        )
+        datapoint["points"] = datapoint["points"] * scale
+        return datapoint
+
+
+class RandomShift:
+    def __init__(self, shift_range=0.1):
+        self.shift_range = shift_range
+
+    def __call__(self, datapoint: dict) -> dict:
+        device = datapoint["points"].device
+        shifts = (torch.rand(3, device=device) - 0.5) * 2 * self.shift_range
+        datapoint["points"] = datapoint["points"] + shifts
+        return datapoint
