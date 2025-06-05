@@ -270,7 +270,47 @@ class PointMAESegmentation(L.LightningModule):
         return self.loss(x_hat, target)
 
     def get_miou(self, x_pred, target):
-        return self.miou(x_pred, target)
+        """
+        Compute mIoU following part segmentation convention:
+        - IoU = 1.0 when class is absent in both pred and target
+        - Average IoU per shape, then average across shapes
+        """
+        batch_size, num_points = x_pred.shape
+
+        all_shape_ious = []
+
+        for i in range(batch_size):
+            pred_i = x_pred[i]
+            target_i = target[i]
+
+            part_ious = []
+            # Check each possible class
+            for class_id in range(self.cls_dim):
+                gt_mask = target_i == class_id
+                pred_mask = pred_i == class_id
+
+                gt_count = gt_mask.sum()
+                pred_count = pred_mask.sum()
+
+                if gt_count == 0 and pred_count == 0:
+                    # Class not present in both - perfect score
+                    part_ious.append(1.0)
+                elif gt_count == 0 or pred_count == 0:
+                    # Class in one but not other - zero score
+                    part_ious.append(0.0)
+                else:
+                    # Standard IoU calculation
+                    intersection = (gt_mask & pred_mask).sum().float()
+                    union = (gt_mask | pred_mask).sum().float()
+                    iou = intersection / union
+                    part_ious.append(iou)
+
+            # Average IoU for this shape
+            shape_iou = torch.stack(part_ious).mean()
+            all_shape_ious.append(shape_iou)
+
+        # Return mean IoU across all shapes
+        return torch.stack(all_shape_ious).mean()
 
     def get_acc(self, x_pred, target):
         return self.accuracy(x_pred, target), self.balanced_accuracy(x_pred, target)
