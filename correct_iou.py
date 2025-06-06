@@ -177,19 +177,14 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
         )
 
         if corrected_miou is not None:
-            # Original metric names - try both patterns
-            miou_key = f"test/miou{cfg['suffix']}"
+            # FIXED: Only use the epoch format
             miou_epoch_key = f"test/miou_epoch{cfg['suffix']}"
 
-            # Get old values if they exist - check both patterns
+            # Get old value if it exists
             old_miou = current_iou_metrics.get(miou_epoch_key, None)
-            if old_miou is None:
-                old_miou = current_iou_metrics.get(miou_key, None)
 
             # Debug logging
-            logger.info(
-                f"  - Looking for old value with keys: {miou_epoch_key} or {miou_key}"
-            )
+            logger.info(f"  - Looking for old value with key: {miou_epoch_key}")
             if old_miou is not None:
                 logger.info(f"  - Found old value: {old_miou:.4f}")
             else:
@@ -206,7 +201,7 @@ def evaluate_all_checkpoints_for_run(run_id, dry_run=False, damp_run=False):
                 }
             )
 
-            iou_updates[miou_key] = corrected_miou
+            # FIXED: Only update the epoch key
             iou_updates[miou_epoch_key] = corrected_miou
 
             logger.info(f"  - Completed: {corrected_miou:.4f}")

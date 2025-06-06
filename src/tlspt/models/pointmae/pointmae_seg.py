@@ -47,6 +47,7 @@ class PointMAESegmentation(L.LightningModule):
         prop_mlp_dim: int = 1024,
         freeze_encoder: bool = False,
         learning_rate: float = 0.001,
+        class_weights: list = None,
     ):
         super().__init__()
 
@@ -133,10 +134,18 @@ class PointMAESegmentation(L.LightningModule):
             num_centers=self.num_centers,
             num_neighbors=self.num_neighbors,
             neighbor_alg=self.neighbor_alg,
-            radius=self.ball_radius / self.scale,
+            radius=self.ball_radius / self.scale
+            if self.neighbor_alg == "ball_query"
+            else None,
         )
 
-        self.loss = nn.CrossEntropyLoss()
+        if class_weights is not None:
+            logger.info(f"Using class weights: {class_weights} for CrossEntropyLoss")
+            self.loss = nn.CrossEntropyLoss(weight=torch.tensor(class_weights))
+        else:
+            logger.info("Using CrossEntropyLoss without class weights")
+            self.loss = nn.CrossEntropyLoss()
+
         self.miou = MeanIoU(num_classes=cls_dim, input_format="index")
         self.accuracy = Accuracy(
             task="binary" if cls_dim == 2 else "multiclass",
