@@ -158,6 +158,8 @@ class PointMAESegmentation(L.LightningModule):
         self.warmup_epochs = min(warmup_epochs, total_epochs)
         self.warmup_epochs = max(self.warmup_epochs, 1)
 
+        self.norm = nn.LayerNorm(self.trans_dim)
+
         self.cls_dim = cls_dim
         self.total_epochs = total_epochs
         self.feature_blocks = feature_blocks
@@ -232,6 +234,8 @@ class PointMAESegmentation(L.LightningModule):
         pos_embeddings, feature_list = self.forward_encoder(
             patches, centers
         )  # x: (B, centers, transformer_dim), pos_embeddings: (batch, centers, transformer_dim), feature_tensor: no groups long list of (B, no. centers, transformer dim)
+
+        feature_list = [self.norm(feat) for feat in feature_list]
 
         # Stack feature list
         feature_tensor = torch.cat(

@@ -274,6 +274,16 @@ def main(config: DictConfig):
     torch.set_float32_matmul_precision(matmul_precision)
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     logging.getLogger("torch.distributed.distributed_c10d").setLevel(logging.DEBUG)
+
+    gradient_clip_val = config.get("gradient_clip_val", None)
+    gradient_clip_algorithm = config.get("gradient_clip_algorithm", "norm")
+    if gradient_clip_val is not None:
+        logger.info(
+            f"Setting gradient clipping: {gradient_clip_algorithm} with value {gradient_clip_val}"
+        )
+    else:
+        logger.info("No gradient clipping applied")
+
     trainer = pl.Trainer(
         num_nodes=num_nodes,
         strategy=strategy,
