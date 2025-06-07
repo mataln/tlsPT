@@ -356,6 +356,7 @@ def main(config: DictConfig):
                     neighbor_alg=model.neighbor_alg,
                     num_centers=model.num_centers,
                     num_neighbors=model.num_neighbors,
+                    class_weights=model.class_weights,
                 )
 
                 # Use original trainer but disable logging

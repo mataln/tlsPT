@@ -145,6 +145,7 @@ class PointMAESegmentation(L.LightningModule):
         else:
             logger.info("Using CrossEntropyLoss without class weights")
             self.loss = nn.CrossEntropyLoss()
+        self.class_weights = class_weights
 
         self.miou = MeanIoU(num_classes=cls_dim, input_format="index")
         self.accuracy = Accuracy(
