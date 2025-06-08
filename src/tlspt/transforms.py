@@ -263,3 +263,43 @@ class RandomShift:
         shifts = (torch.rand(3, device=device) - 0.5) * 2 * self.shift_range
         datapoint["points"] = datapoint["points"] + shifts
         return datapoint
+
+
+class ShufflePoints:
+    def __call__(self, datapoint: dict) -> dict:
+        # Get number of points
+        n_points = datapoint["points"].shape[0]
+
+        # Random permutation
+        perm = torch.randperm(n_points)
+
+        # Shuffle points
+        datapoint["points"] = datapoint["points"][perm]
+
+        # Shuffle features if present
+        if "features" in datapoint and datapoint["features"] is not None:
+            datapoint["features"] = datapoint["features"][perm]
+
+        return datapoint
+
+
+class RandomPadder:
+    def __init__(self, num_points):
+        self.num_points = num_points
+
+    def __call__(self, datapoint: dict) -> dict:
+        points = datapoint["points"]
+        features = datapoint["features"] if "features" in datapoint else None
+
+        if points.shape[0] < self.num_points:
+            # Random sampling with replacement like the old code
+            idx = np.random.choice(points.shape[0], self.num_points, replace=True)
+            points = points[idx]
+            if features is not None:
+                features = features[idx]
+
+        datapoint["points"] = points
+        if features is not None:
+            datapoint["features"] = features
+
+        return datapoint
