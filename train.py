@@ -4,7 +4,9 @@ import glob
 import logging
 import os
 import random
+import signal
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 
 import hydra
@@ -26,6 +28,19 @@ from loguru import logger
 from omegaconf import DictConfig
 
 from tlspt.callbacks.final_checkpoint import SaveFinalCheckpoint
+
+
+@contextmanager
+def timeout(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutError("Checkpoint loading timed out")
+
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
 
 
 @hydra.main(
@@ -144,7 +159,21 @@ def main(config: DictConfig):
     elif config.get("from_checkpoint", None):  # Pretrained from ckpt
         wandb_logger.log_hyperparams({"from_checkpoint": config.from_checkpoint})
         logger.info(f"Loading pretrained model from {config.from_checkpoint}")
-        backbone = torch.load(config.from_checkpoint, weights_only=False)["state_dict"]
+
+        try:
+            with timeout(300):  # 5 minute timeout
+                logger.info(f"Loading checkpoint with 5 minute timeout...")
+                backbone = torch.load(config.from_checkpoint, weights_only=False)[
+                    "state_dict"
+                ]
+                logger.info(f"Checkpoint loaded successfully")
+        except TimeoutError:
+            logger.error("Checkpoint loading timed out after 5 minutes")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading checkpoint: {e}")
+            raise
+
         logger.info(f"Pretrained model loaded")
         model = hydra.utils.instantiate(config.model, backbone=backbone)
     else:  # From scratch or resume
