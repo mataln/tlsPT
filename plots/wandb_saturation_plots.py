@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 api = wandb.Api()
 
 # Constants
-PROJECT = "mja2106/TUNE_TLSPT_2025"
+PROJECT = "mja2106/FINAL_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -32,7 +32,7 @@ METRICS = {
     "loss": "Loss",
 }
 
-CHECKPOINTS = ["first", "last", "best"]
+CHECKPOINTS = ["first", "last", "best", "step97"]
 FREEZE_TYPES = {
     "full": "Full Finetune",
     "frozen": "Frozen Encoder",
