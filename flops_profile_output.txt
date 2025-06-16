@@ -1,0 +1,529 @@
+Loading config from configs/lw_seg/flop_test.yaml
+
+Running DeepSpeed FLOPs profiler...
+
+================================================================================
+DEEPSPEED PROFILER OUTPUT
+================================================================================
+
+-------------------------- DeepSpeed Flops Profiler --------------------------
+Profile Summary at step 1:
+Notations:
+data parallel size (dp_size), model parallel size(mp_size),
+number of parameters (params), number of multiply-accumulate operations(MACs),
+number of floating-point operations (flops), floating-point operations per second (FLOPS),
+fwd latency (forward propagation latency), bwd latency (backward propagation latency),
+step (weights update latency), iter latency (sum of fwd, bwd and step latency)
+
+params per GPU:                                                         27.02 M
+params of model = params per GPU * mp_size:                             0
+fwd MACs per GPU:                                                       53.16 GMACs
+fwd flops per GPU:                                                      106.47 G
+fwd flops of model = fwd flops per GPU * mp_size:                       106.47 G
+fwd latency:                                                            285.4 ms
+fwd FLOPS per GPU = fwd flops per GPU / fwd latency:                    373.07 GFLOPS
+
+----------------------------- Aggregated Profile per GPU -----------------------------
+Top 1000 modules in terms of params, MACs or fwd latency at different model depths:
+depth 0:
+    params      - {'PointMAESegmentation': '27.02 M'}
+    MACs        - {'PointMAESegmentation': '53.16 GMACs'}
+    fwd latency - {'PointMAESegmentation': '285.4 ms'}
+depth 1:
+    params      - {'TransformerEncoder': '21.28 M', 'PointNetFeaturePropagation': '3.35 M', 'Conv1d': '1.84 M', 'PointNetEncoder': '494.46 K', 'PositionEncoder': '50.05 K', 'BatchNorm1d': '1.54 K', 'LayerNorm': '768', 'Group': '0', 'CrossEntropyLoss': '0', 'MeanIoU': '0', 'BinaryAccuracy': '0', 'MulticlassAccuracy': '0', 'Dropout': '0', 'ReLU': '0'}
+    MACs        - {'PointNetFeaturePropagation': '27.42 GMACs', 'Conv1d': '15.04 GMACs', 'PointNetEncoder': '6.17 GMACs', 'TransformerEncoder': '4.52 GMACs', 'PositionEncoder': '9.71 MMACs', 'Group': '0 MACs', 'CrossEntropyLoss': '0 MACs', 'MeanIoU': '0 MACs', 'BinaryAccuracy': '0 MACs', 'MulticlassAccuracy': '0 MACs', 'LayerNorm': '0 MACs', 'Dropout': '0 MACs', 'BatchNorm1d': '0 MACs', 'ReLU': '0 MACs'}
+    fwd latency - {'PointNetEncoder': '121.16 ms', 'Group': '67.53 ms', 'PointNetFeaturePropagation': '48.86 ms', 'TransformerEncoder': '31.99 ms', 'PositionEncoder': '6.89 ms', 'Conv1d': '2.35 ms', 'BatchNorm1d': '171.9 us', 'LayerNorm': '151.87 us', 'ReLU': '103.95 us', 'Dropout': '34.33 us', 'CrossEntropyLoss': '0 s', 'MeanIoU': '0 s', 'BinaryAccuracy': '0 s', 'MulticlassAccuracy': '0 s'}
+depth 2:
+    params      - {'ModuleList': '24.63 M', 'Sequential': '544.51 K'}
+    MACs        - {'ModuleList': '31.93 GMACs', 'Sequential': '6.18 GMACs'}
+    fwd latency - {'Sequential': '124.72 ms', 'ModuleList': '34.43 ms'}
+depth 3:
+    params      - {'Block': '21.28 M', 'Conv1d': '3.84 M', 'Linear': '50.05 K', 'BatchNorm1d': '6.4 K', 'GELU': '0', 'ReLU': '0'}
+    MACs        - {'Conv1d': '33.59 GMACs', 'Block': '4.52 GMACs', 'Linear': '9.71 MMACs', 'GELU': '0 MACs', 'BatchNorm1d': '0 MACs', 'ReLU': '0 MACs'}
+    fwd latency - {'Conv1d': '108.31 ms', 'Block': '31.46 ms', 'BatchNorm1d': '6.37 ms', 'ReLU': '5.84 ms', 'Linear': '3.64 ms', 'GELU': '3.09 ms'}
+depth 4:
+    params      - {'Mlp': '14.18 M', 'Attention': '7.08 M', 'LayerNorm': '18.43 K', 'Identity': '0'}
+    MACs        - {'Mlp': '2.77 GMACs', 'Attention': '1.74 GMACs', 'LayerNorm': '0 MACs', 'Identity': '0 MACs'}
+    fwd latency - {'Attention': '18.22 ms', 'Mlp': '8.25 ms', 'LayerNorm': '2.37 ms', 'Identity': '401.5 us'}
+
+------------------------------ Detailed Profile per GPU ------------------------------
+Each module profile is listed after its name in the following order:
+params, percentage of total params, MACs, percentage of total MACs, fwd latency, percentage of total fwd latency, fwd FLOPS
+
+Note: 1. A module can have torch.nn.module or torch.nn.functional to compute logits (e.g. CrossEntropyLoss). They are not counted as submodules, thus not to be printed out. However they make up the difference between a parent's MACs (or latency) and the sum of its submodules'.
+2. Number of floating-point operations is a theoretical estimation, thus FLOPS computed using that could be larger than the maximum system throughput.
+3. The fwd latency listed in the top module's profile is directly captured at the module forward function in PyTorch, thus it's less than the fwd latency shown above which is captured in DeepSpeed.
+
+PointMAESegmentation(
+  27.02 M = 100% Params, 53.16 GMACs = 100% MACs, 285.4 ms = 100% latency, 373.07 GFLOPS
+  (pos_encoder): PositionEncoder(
+    50.05 K = 0.19% Params, 9.71 MMACs = 0.02% MACs, 6.89 ms = 2.42% latency, 2.82 GFLOPS
+    (encoder): Sequential(
+      50.05 K = 0.19% Params, 9.71 MMACs = 0.02% MACs, 6.85 ms = 2.4% latency, 2.84 GFLOPS
+      (0): Linear(512 = 0% Params, 75.26 KMACs = 0% MACs, 3.5 ms = 1.23% latency, 43.03 MFLOPS, in_features=3, out_features=128, bias=True)
+      (1): GELU(0 = 0% Params, 0 MACs = 0% MACs, 3.09 ms = 1.08% latency, 8.11 MFLOPS, approximate='none')
+      (2): Linear(49.54 K = 0.18% Params, 9.63 MMACs = 0.02% MACs, 144.96 us = 0.05% latency, 132.92 GFLOPS, in_features=128, out_features=384, bias=True)
+    )
+  )
+  (patch_encoder): PointNetEncoder(
+    494.46 K = 1.83% Params, 6.17 GMACs = 11.61% MACs, 121.16 ms = 42.45% latency, 102.19 GFLOPS
+    (conv1): Sequential(
+      33.79 K = 0.13% Params, 415.86 MMACs = 0.78% MACs, 101.31 ms = 35.5% latency, 8.3 GFLOPS
+      (0): Conv1d(512 = 0% Params, 4.82 MMACs = 0.01% MACs, 85.91 ms = 30.1% latency, 130.83 MFLOPS, 3, 128, kernel_size=(1,), stride=(1,))
+      (1): BatchNorm1d(256 = 0% Params, 0 MACs = 0% MACs, 5.63 ms = 1.97% latency, 569.97 MFLOPS, 128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (2): ReLU(0 = 0% Params, 0 MACs = 0% MACs, 5.78 ms = 2.02% latency, 278.01 MFLOPS)
+      (3): Conv1d(33.02 K = 0.12% Params, 411.04 MMACs = 0.77% MACs, 3.82 ms = 1.34% latency, 215.94 GFLOPS, 128, 256, kernel_size=(1,), stride=(1,))
+    )
+    (conv2): Sequential(
+      460.67 K = 1.71% Params, 5.75 GMACs = 10.83% MACs, 16.56 ms = 5.8% latency, 696.72 GFLOPS
+      (0): Conv1d(262.66 K = 0.97% Params, 3.29 GMACs = 6.19% MACs, 1.1 ms = 0.39% latency, 5.96 TFLOPS, 512, 512, kernel_size=(1,), stride=(1,))
+      (1): BatchNorm1d(1.02 K = 0% Params, 0 MACs = 0% MACs, 315.9 us = 0.11% latency, 40.66 GFLOPS, 512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (2): ReLU(0 = 0% Params, 0 MACs = 0% MACs, 64.37 us = 0.02% latency, 99.77 GFLOPS)
+      (3): Conv1d(196.99 K = 0.73% Params, 2.47 GMACs = 4.64% MACs, 14.94 ms = 5.23% latency, 330.55 GFLOPS, 512, 384, kernel_size=(1,), stride=(1,))
+    )
+  )
+  (transformer_encoder): TransformerEncoder(
+    21.28 M = 78.76% Params, 4.52 GMACs = 8.5% MACs, 31.99 ms = 11.21% latency, 282.71 GFLOPS
+    (blocks): ModuleList(
+      (0): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 18.41 ms = 6.45% latency, 40.93 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 1.07 ms = 0.38% latency, 351.22 MFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 36.48 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 67.95 us = 0.02% latency, 5.54 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 4.2 ms = 1.47% latency, 110.22 GFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 120.88 us = 0.04% latency, 1.91 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 52.21 us = 0.02% latency, 5.77 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 3.82 ms = 1.34% latency, 60.49 GFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 56.98 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 12.82 ms = 4.49% latency, 22.63 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 324.96 us = 0.11% latency, 533.62 GFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 62.23 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 97.75 us = 0.03% latency, 591.32 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.56 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (1): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.24 ms = 0.43% latency, 607.69 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 61.04 us = 0.02% latency, 6.17 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.62 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 56.03 us = 0.02% latency, 6.72 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 370.03 us = 0.13% latency, 1.25 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 73.91 us = 0.03% latency, 3.13 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 43.87 us = 0.02% latency, 6.86 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 78.68 us = 0.03% latency, 2.94 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 51.02 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 533.82 us = 0.19% latency, 543.66 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 75.82 us = 0.03% latency, 2.29 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 33.14 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 68.9 us = 0.02% latency, 838.9 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.89 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (2): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.19 ms = 0.42% latency, 633.26 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 55.07 us = 0.02% latency, 6.83 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.14 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 55.31 us = 0.02% latency, 6.8 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 375.03 us = 0.13% latency, 1.23 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 74.15 us = 0.03% latency, 3.12 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.2 us = 0.01% latency, 7.13 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 86.55 us = 0.03% latency, 2.67 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 50.31 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 488.76 us = 0.17% latency, 593.79 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.81 us = 0.02% latency, 2.45 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 30.99 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 67.95 us = 0.02% latency, 850.67 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 26.94 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (3): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.19 ms = 0.42% latency, 632.62 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.41 us = 0.02% latency, 7.05 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.86 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 61.99 us = 0.02% latency, 6.07 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 370.03 us = 0.13% latency, 1.25 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 75.82 us = 0.03% latency, 3.05 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.2 us = 0.01% latency, 7.13 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 77.96 us = 0.03% latency, 2.97 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 50.78 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 484.47 us = 0.17% latency, 599.05 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.1 us = 0.02% latency, 2.47 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.8 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 68.43 us = 0.02% latency, 844.75 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.18 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (4): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.18 ms = 0.41% latency, 640.05 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.41 us = 0.02% latency, 7.05 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 32.9 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.88 us = 0.02% latency, 6.98 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 364.07 us = 0.13% latency, 1.27 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 71.53 us = 0.03% latency, 3.23 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.68 us = 0.01% latency, 7.05 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 79.15 us = 0.03% latency, 2.92 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 49.11 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 491.62 us = 0.17% latency, 590.33 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 69.62 us = 0.02% latency, 2.49 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 30.52 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 66.76 us = 0.02% latency, 865.87 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.42 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (5): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.17 ms = 0.41% latency, 641.74 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.88 us = 0.02% latency, 6.98 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 32.19 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 56.03 us = 0.02% latency, 6.72 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 362.87 us = 0.13% latency, 1.28 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 71.29 us = 0.02% latency, 3.24 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.2 us = 0.01% latency, 7.13 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 79.39 us = 0.03% latency, 2.91 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 48.88 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 490.9 us = 0.17% latency, 591.19 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 68.9 us = 0.02% latency, 2.52 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 31.95 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 68.19 us = 0.02% latency, 847.7 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 26.94 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (6): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.19 ms = 0.42% latency, 634.78 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 54.36 us = 0.02% latency, 6.92 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.14 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 54.6 us = 0.02% latency, 6.89 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 374.32 us = 0.13% latency, 1.24 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 75.82 us = 0.03% latency, 3.05 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.2 us = 0.01% latency, 7.13 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 77.72 us = 0.03% latency, 2.97 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 48.88 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 480.89 us = 0.17% latency, 603.5 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.1 us = 0.02% latency, 2.47 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.56 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 67 us = 0.02% latency, 862.78 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.18 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (7): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.17 ms = 0.41% latency, 646.47 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.41 us = 0.02% latency, 7.05 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.38 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.64 us = 0.02% latency, 7.02 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 368.36 us = 0.13% latency, 1.26 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 70.57 us = 0.02% latency, 3.28 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 48.4 us = 0.02% latency, 6.22 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 78.92 us = 0.03% latency, 2.93 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 49.59 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 477.79 us = 0.17% latency, 607.42 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.81 us = 0.02% latency, 2.45 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.33 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 66.04 us = 0.02% latency, 875.24 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 25.99 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (8): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.18 ms = 0.41% latency, 639.79 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.17 us = 0.02% latency, 7.08 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.14 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 63.9 us = 0.02% latency, 5.89 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 365.97 us = 0.13% latency, 1.26 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 72.24 us = 0.03% latency, 3.2 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.68 us = 0.01% latency, 7.05 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 78.44 us = 0.03% latency, 2.95 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 49.11 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 478.98 us = 0.17% latency, 605.9 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 68.66 us = 0.02% latency, 2.53 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.56 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 66.52 us = 0.02% latency, 868.97 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.18 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (9): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.18 ms = 0.41% latency, 640.31 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.64 us = 0.02% latency, 7.02 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 33.62 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 55.07 us = 0.02% latency, 6.83 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 365.26 us = 0.13% latency, 1.27 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 76.29 us = 0.03% latency, 3.03 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.68 us = 0.01% latency, 7.05 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 78.44 us = 0.03% latency, 2.95 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 48.88 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 490.9 us = 0.17% latency, 591.19 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 69.86 us = 0.02% latency, 2.48 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 29.33 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 75.34 us = 0.03% latency, 767.22 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.66 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (10): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.18 ms = 0.41% latency, 638.76 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 53.88 us = 0.02% latency, 6.98 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 31.95 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 54.6 us = 0.02% latency, 6.89 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 364.78 us = 0.13% latency, 1.27 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 71.29 us = 0.02% latency, 3.24 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 42.92 us = 0.02% latency, 7.02 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 77.72 us = 0.03% latency, 2.97 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 51.02 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 497.1 us = 0.17% latency, 583.82 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.1 us = 0.02% latency, 2.47 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 31.71 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 66.76 us = 0.02% latency, 865.87 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 27.66 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+      (11): Block(
+        1.77 M = 6.56% Params, 376.32 MMACs = 0.71% MACs, 1.19 ms = 0.42% latency, 634.15 GFLOPS
+        (norm1): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 65.09 us = 0.02% latency, 5.78 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (drop_path): Identity(0 = 0% Params, 0 MACs = 0% MACs, 34.09 us = 0.01% latency, 0 FLOPS)
+        (norm2): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 54.36 us = 0.02% latency, 6.92 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+        (mlp): Mlp(
+          1.18 M = 4.37% Params, 231.21 MMACs = 0.43% MACs, 367.4 us = 0.13% latency, 1.26 TFLOPS
+          (fc1): Linear(591.36 K = 2.19% Params, 115.61 MMACs = 0.22% MACs, 70.81 us = 0.02% latency, 3.27 TFLOPS, in_features=384, out_features=1536, bias=True)
+          (act): GELU(0 = 0% Params, 0 MACs = 0% MACs, 41.96 us = 0.01% latency, 7.17 GFLOPS, approximate='none')
+          (fc2): Linear(590.21 K = 2.18% Params, 115.61 MMACs = 0.22% MACs, 81.78 us = 0.03% latency, 2.83 TFLOPS, in_features=1536, out_features=384, bias=True)
+          (drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 50.78 us = 0.02% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+        (attn): Attention(
+          590.21 K = 2.18% Params, 145.11 MMACs = 0.27% MACs, 485.18 us = 0.17% latency, 598.16 GFLOPS
+          (qkv): Linear(442.37 K = 1.64% Params, 86.7 MMACs = 0.16% MACs, 70.57 us = 0.02% latency, 2.46 TFLOPS, in_features=384, out_features=1152, bias=False)
+          (attn_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 30.99 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+          (proj): Linear(147.84 K = 0.55% Params, 28.9 MMACs = 0.05% MACs, 67 us = 0.02% latency, 862.78 GFLOPS, in_features=384, out_features=384, bias=True)
+          (proj_drop): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 26.46 us = 0.01% latency, 0 FLOPS, p=0.0, inplace=False)
+        )
+      )
+    )
+  )
+  (group): Group(0 = 0% Params, 0 MACs = 0% MACs, 67.53 ms = 23.66% latency, 0 FLOPS)
+  (loss): CrossEntropyLoss(0 = 0% Params, 0 MACs = 0% MACs, 0 s = 0% latency, 0 FLOPS)
+  (miou): MeanIoU(0 = 0% Params, 0 MACs = 0% MACs, 0 s = 0% latency, 0 FLOPS)
+  (accuracy): BinaryAccuracy(0 = 0% Params, 0 MACs = 0% MACs, 0 s = 0% latency, 0 FLOPS)
+  (balanced_accuracy): MulticlassAccuracy(0 = 0% Params, 0 MACs = 0% MACs, 0 s = 0% latency, 0 FLOPS)
+  (norm): LayerNorm(768 = 0% Params, 0 MACs = 0% MACs, 151.87 us = 0.05% latency, 7.43 GFLOPS, (384,), eps=1e-05, elementwise_affine=True)
+  (propagation_0): PointNetFeaturePropagation(
+    3.35 M = 12.42% Params, 27.42 GMACs = 51.59% MACs, 48.86 ms = 17.12% latency, 1.12 TFLOPS
+    (mlp_convs): ModuleList(
+      (0): Conv1d(1.78 M = 6.57% Params, 14.53 GMACs = 27.34% MACs, 1.61 ms = 0.56% latency, 18.1 TFLOPS, 1155, 1536, kernel_size=(1,), stride=(1,))
+      (1): Conv1d(1.57 M = 5.83% Params, 12.88 GMACs = 24.24% MACs, 930.55 us = 0.33% latency, 27.7 TFLOPS, 1536, 1024, kernel_size=(1,), stride=(1,))
+    )
+    (mlp_bns): ModuleList(
+      (0): BatchNorm1d(3.07 K = 0.01% Params, 0 MACs = 0% MACs, 312.33 us = 0.11% latency, 80.57 GFLOPS, 1536, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (1): BatchNorm1d(2.05 K = 0.01% Params, 0 MACs = 0% MACs, 111.1 us = 0.04% latency, 151.01 GFLOPS, 1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    )
+  )
+  (convs1): Conv1d(1.7 M = 6.31% Params, 13.96 GMACs = 26.26% MACs, 893.35 us = 0.31% latency, 31.25 TFLOPS, 3328, 512, kernel_size=(1,), stride=(1,))
+  (dp1): Dropout(0 = 0% Params, 0 MACs = 0% MACs, 34.33 us = 0.01% latency, 0 FLOPS, p=0.5, inplace=False)
+  (convs2): Conv1d(131.33 K = 0.49% Params, 1.07 GMACs = 2.02% MACs, 783.21 us = 0.27% latency, 2.74 TFLOPS, 512, 256, kernel_size=(1,), stride=(1,))
+  (convs3): Conv1d(514 = 0% Params, 4.19 MMACs = 0.01% MACs, 676.39 us = 0.24% latency, 12.43 GFLOPS, 256, 2, kernel_size=(1,), stride=(1,))
+  (bns1): BatchNorm1d(1.02 K = 0% Params, 0 MACs = 0% MACs, 83.92 us = 0.03% latency, 99.96 GFLOPS, 512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (bns2): BatchNorm1d(512 = 0% Params, 0 MACs = 0% MACs, 87.98 us = 0.03% latency, 47.68 GFLOPS, 256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (relu): ReLU(0 = 0% Params, 0 MACs = 0% MACs, 103.95 us = 0.04% latency, 60.52 GFLOPS)
+)
+------------------------------------------------------------------------------
+
+================================================================================
+
+
+MODEL PARAMETER NAMES (for schedule mapping):
+================================================================================
+pos_encoder.encoder.0.weight: torch.Size([128, 3])
+pos_encoder.encoder.0.bias: torch.Size([128])
+pos_encoder.encoder.2.weight: torch.Size([384, 128])
+pos_encoder.encoder.2.bias: torch.Size([384])
+patch_encoder.conv1.0.weight: torch.Size([128, 3, 1])
+patch_encoder.conv1.0.bias: torch.Size([128])
+patch_encoder.conv1.1.weight: torch.Size([128])
+patch_encoder.conv1.1.bias: torch.Size([128])
+patch_encoder.conv1.3.weight: torch.Size([256, 128, 1])
+patch_encoder.conv1.3.bias: torch.Size([256])
+patch_encoder.conv2.0.weight: torch.Size([512, 512, 1])
+patch_encoder.conv2.0.bias: torch.Size([512])
+patch_encoder.conv2.1.weight: torch.Size([512])
+patch_encoder.conv2.1.bias: torch.Size([512])
+patch_encoder.conv2.3.weight: torch.Size([384, 512, 1])
+patch_encoder.conv2.3.bias: torch.Size([384])
+transformer_encoder.blocks.0.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.0.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.0.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.0.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.0.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.0.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.0.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.0.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.0.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.0.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.0.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.1.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.1.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.1.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.1.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.1.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.1.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.1.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.1.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.1.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.1.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.1.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.2.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.2.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.2.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.2.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.2.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.2.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.2.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.2.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.2.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.2.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.2.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.3.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.3.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.3.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.3.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.3.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.3.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.3.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.3.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.3.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.3.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.3.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.4.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.4.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.4.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.4.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.4.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.4.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.4.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.4.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.4.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.4.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.4.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.5.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.5.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.5.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.5.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.5.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.5.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.5.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.5.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.5.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.5.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.5.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.6.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.6.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.6.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.6.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.6.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.6.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.6.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.6.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.6.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.6.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.6.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.7.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.7.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.7.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.7.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.7.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.7.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.7.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.7.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.7.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.7.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.7.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.8.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.8.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.8.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.8.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.8.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.8.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.8.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.8.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.8.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.8.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.8.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.9.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.9.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.9.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.9.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.9.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.9.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.9.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.9.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.9.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.9.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.9.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.10.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.10.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.10.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.10.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.10.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.10.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.10.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.10.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.10.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.10.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.10.attn.proj.bias: torch.Size([384])
+transformer_encoder.blocks.11.norm1.weight: torch.Size([384])
+transformer_encoder.blocks.11.norm1.bias: torch.Size([384])
+transformer_encoder.blocks.11.norm2.weight: torch.Size([384])
+transformer_encoder.blocks.11.norm2.bias: torch.Size([384])
+transformer_encoder.blocks.11.mlp.fc1.weight: torch.Size([1536, 384])
+transformer_encoder.blocks.11.mlp.fc1.bias: torch.Size([1536])
+transformer_encoder.blocks.11.mlp.fc2.weight: torch.Size([384, 1536])
+transformer_encoder.blocks.11.mlp.fc2.bias: torch.Size([384])
+transformer_encoder.blocks.11.attn.qkv.weight: torch.Size([1152, 384])
+transformer_encoder.blocks.11.attn.proj.weight: torch.Size([384, 384])
+transformer_encoder.blocks.11.attn.proj.bias: torch.Size([384])
+norm.weight: torch.Size([384])
+norm.bias: torch.Size([384])
+propagation_0.mlp_convs.0.weight: torch.Size([1536, 1155, 1])
+propagation_0.mlp_convs.0.bias: torch.Size([1536])
+propagation_0.mlp_convs.1.weight: torch.Size([1024, 1536, 1])
+propagation_0.mlp_convs.1.bias: torch.Size([1024])
+propagation_0.mlp_bns.0.weight: torch.Size([1536])
+propagation_0.mlp_bns.0.bias: torch.Size([1536])
+propagation_0.mlp_bns.1.weight: torch.Size([1024])
+propagation_0.mlp_bns.1.bias: torch.Size([1024])
+convs1.weight: torch.Size([512, 3328, 1])
+convs1.bias: torch.Size([512])
+convs2.weight: torch.Size([256, 512, 1])
+convs2.bias: torch.Size([256])
+convs3.weight: torch.Size([2, 256, 1])
+convs3.bias: torch.Size([2])
+bns1.weight: torch.Size([512])
+bns1.bias: torch.Size([512])
+bns2.weight: torch.Size([256])
+bns2.bias: torch.Size([256])

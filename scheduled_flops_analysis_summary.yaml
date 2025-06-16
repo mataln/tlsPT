@@ -1,0 +1,55 @@
+batches_per_epoch: 97
+module_breakdown:
+  decoder_gflops: 30.06838
+  encoder_gflops: 21.3911
+savings:
+  scheduled_vs_frozen: -0.16418579455126206
+  scheduled_vs_unfrozen: 0.15843975795238419
+schedule_transitions:
+- !!python/tuple
+  - 20
+  - 1
+- !!python/tuple
+  - 35
+  - 2
+- !!python/tuple
+  - 50
+  - 3
+- !!python/tuple
+  - 65
+  - 4
+- !!python/tuple
+  - 80
+  - 5
+- !!python/tuple
+  - 95
+  - 6
+- !!python/tuple
+  - 110
+  - 7
+- !!python/tuple
+  - 125
+  - 8
+- !!python/tuple
+  - 140
+  - 9
+- !!python/tuple
+  - 160
+  - 10
+- !!python/tuple
+  - 180
+  - 11
+- !!python/tuple
+  - 200
+  - 12
+- !!python/tuple
+  - 220
+  - 13
+- !!python/tuple
+  - 300
+  - 14
+total_epochs: 300
+total_training_flops:
+  frozen_encoder: 3247450584000000.0
+  fully_unfrozen: 4492412604000000.0
+  scheduled: 3780635838400000.0
