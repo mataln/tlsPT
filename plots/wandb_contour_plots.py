@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 api = wandb.Api()
 
 # Constants
-PROJECT = "mja2106/FINAL_TUNE_TLSPT_2025"
+PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 

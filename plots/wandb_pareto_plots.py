@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 api = wandb.Api()
 
 # Constants
-PROJECT = "mja2106/FINAL_TUNE_TLSPT_2025"
+PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -169,8 +169,29 @@ def aggregate_runs(df):
     return df_agg
 
 
+def compute_efficient_frontier(flops, metric_values):
+    """
+    Compute the efficient frontier for a set of points.
+    Returns indices of points on the frontier.
+    """
+    # Create array of indices and sort by flops
+    points = np.column_stack([flops, metric_values])
+    indices = np.arange(len(flops))
+    sorted_indices = indices[np.argsort(flops)]
+
+    frontier_indices = []
+    max_metric = -np.inf
+
+    for idx in sorted_indices:
+        if points[idx, 1] > max_metric:
+            frontier_indices.append(idx)
+            max_metric = points[idx, 1]
+
+    return np.array(frontier_indices)
+
+
 def create_pareto_plot(df, metric, architecture):
-    """Create a pareto plot with training FLOPs on x-axis"""
+    """Create a pareto plot with training FLOPs on x-axis and efficient frontier"""
 
     # Filter for specific architecture
     arch_data = df[
@@ -190,6 +211,11 @@ def create_pareto_plot(df, metric, architecture):
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 8))
 
+    # Collect all points for efficient frontier calculation
+    all_flops = []
+    all_metrics = []
+    all_labels = []
+
     # Plot each freeze type
     for freeze_type in [
         "scratch",
@@ -206,6 +232,11 @@ def create_pareto_plot(df, metric, architecture):
 
         # Sort by FLOPs
         data = data.sort_values("train_flops")
+
+        # Collect points for frontier
+        all_flops.extend(data["train_flops"].values)
+        all_metrics.extend(data[metric_col].values)
+        all_labels.extend([freeze_type] * len(data))
 
         # Plot line
         line = ax.plot(
@@ -241,6 +272,41 @@ def create_pareto_plot(df, metric, architecture):
                 ),
             )
 
+    # Compute and plot efficient frontier
+    if len(all_flops) > 0:
+        all_flops = np.array(all_flops)
+        all_metrics = np.array(all_metrics)
+
+        frontier_indices = compute_efficient_frontier(all_flops, all_metrics)
+
+        # Sort frontier points by flops for smooth line
+        frontier_flops = all_flops[frontier_indices]
+        frontier_metrics = all_metrics[frontier_indices]
+        sort_idx = np.argsort(frontier_flops)
+
+        # Plot efficient frontier
+        ax.plot(
+            frontier_flops[sort_idx],
+            frontier_metrics[sort_idx],
+            "k--",
+            linewidth=3,
+            label="Efficient Frontier",
+            alpha=0.7,
+            zorder=10,
+        )
+
+        # Highlight frontier points
+        ax.scatter(
+            frontier_flops,
+            frontier_metrics,
+            s=200,
+            facecolors="none",
+            edgecolors="black",
+            linewidth=3,
+            zorder=11,
+            alpha=0.8,
+        )
+
     # Formatting
     ax.set_xlabel("Training FLOPs (log scale)", fontsize=14)
     ax.set_ylabel(METRICS[metric], fontsize=14)
@@ -273,7 +339,7 @@ def create_pareto_plot(df, metric, architecture):
 
 
 def create_combined_architecture_plot(df, metric):
-    """Create a plot with all architectures as subplots"""
+    """Create a plot with all architectures as subplots with efficient frontiers"""
 
     # Get unique architectures (excluding scratch)
     architectures = sorted(df[df["arch"] != "scratch"]["arch"].unique())
@@ -299,6 +365,10 @@ def create_combined_architecture_plot(df, metric):
         metric_col = f"{metric}_{CHECKPOINT}"
         arch_data = arch_data.dropna(subset=[metric_col, "train_flops"])
 
+        # Collect all points for efficient frontier calculation
+        all_flops = []
+        all_metrics = []
+
         # Plot each freeze type
         for freeze_type in ["scratch", "frozen", "scheduled", "full"]:
             if freeze_type not in FREEZE_TYPES:
@@ -310,6 +380,10 @@ def create_combined_architecture_plot(df, metric):
 
             # Sort by FLOPs
             data = data.sort_values("train_flops")
+
+            # Collect points
+            all_flops.extend(data["train_flops"].values)
+            all_metrics.extend(data[metric_col].values)
 
             # Plot line
             line = ax.plot(
@@ -336,6 +410,41 @@ def create_combined_architecture_plot(df, metric):
                     color=line.get_color(),
                     weight="bold",
                 )
+
+        # Compute and plot efficient frontier
+        if len(all_flops) > 0:
+            all_flops = np.array(all_flops)
+            all_metrics = np.array(all_metrics)
+
+            frontier_indices = compute_efficient_frontier(all_flops, all_metrics)
+
+            # Sort frontier points
+            frontier_flops = all_flops[frontier_indices]
+            frontier_metrics = all_metrics[frontier_indices]
+            sort_idx = np.argsort(frontier_flops)
+
+            # Plot efficient frontier
+            ax.plot(
+                frontier_flops[sort_idx],
+                frontier_metrics[sort_idx],
+                "k--",
+                linewidth=2.5,
+                label="Efficient Frontier" if idx == 0 else "",
+                alpha=0.7,
+                zorder=10,
+            )
+
+            # Highlight frontier points
+            ax.scatter(
+                frontier_flops,
+                frontier_metrics,
+                s=150,
+                facecolors="none",
+                edgecolors="black",
+                linewidth=2.5,
+                zorder=11,
+                alpha=0.8,
+            )
 
         # Formatting
         ax.set_xlabel("Training FLOPs (log scale)", fontsize=12)

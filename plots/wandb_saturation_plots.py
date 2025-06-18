@@ -5,9 +5,8 @@ import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from scipy.interpolate import griddata
+import seaborn as sns
 
 import wandb
 
@@ -17,28 +16,42 @@ warnings.filterwarnings("ignore")
 api = wandb.Api()
 
 # Constants
-PROJECT = "mja2106/FINAL_TUNE_TLSPT_2025"
+PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Styling
 plt.style.use("seaborn-v0_8-whitegrid")
+sns.set_palette("husl")
 
 # Define metrics to plot
 METRICS = {
     "bal_acc": "Balanced Accuracy",
     "miou": "Mean IoU",
+    "acc": "Accuracy",
+    "loss": "Loss",
 }
 
-# Fixed parameters - only full finetune and last checkpoint
-FREEZE_TYPE = "full"
-CHECKPOINT = "last"
+CHECKPOINTS = ["first", "last", "best", "step97"]
+FREEZE_TYPES = {
+    "full": "Full Finetune",
+    "frozen": "Frozen Encoder",
+    "scratch": "From Scratch",
+    "scheduled": "Scheduled Unfreeze",
+}
+
+# Architecture mapping
+ARCH_MAPPING = {
+    "vits": "ViT-S",
+    "vitb": "ViT-B",
+    "vitl": "ViT-L",
+}
 
 
 def parse_checkpoint_name(checkpoint_name):
     """Extract architecture and unlabeled data percentage from checkpoint name"""
     if checkpoint_name == "scratch":
-        return "scratch", 0.0  # 0% pretraining data
+        return "scratch", None
 
     # Extract architecture (vits, vitb, vitl)
     arch_match = re.match(r"(vit[sbl])", checkpoint_name.lower())
@@ -57,6 +70,14 @@ def fetch_runs():
     runs = api.runs(PROJECT)
 
     data = []
+    checkpoint_info = {}  # Track unique checkpoints
+    freeze_type_counts = {}  # Debug: track freeze types
+
+    # Track all unique metric keys we find
+
+    # Debug: sample key patterns
+    sample_runs_checked = 0
+    max_sample_runs = 5
 
     for run in runs:
         # Get config and summary data
@@ -67,19 +88,29 @@ def fetch_runs():
         if "ablation/freeze_type" not in config:
             continue
 
-        # Only get full finetune runs
-        freeze_type = config.get("ablation/freeze_type")
-        if freeze_type != FREEZE_TYPE:
-            continue
-
-        # Extract checkpoint name
+        # Extract checkpoint name and freeze type
         checkpoint = config.get("ablation/checkpoint", "scratch")
+        freeze_type = config.get("ablation/freeze_type")
+
+        # Debug: count freeze types
+        freeze_type_counts[freeze_type] = freeze_type_counts.get(freeze_type, 0) + 1
 
         # Parse checkpoint info
         arch, uldata_pct = parse_checkpoint_name(checkpoint)
 
+        # Track checkpoint info
+        if checkpoint not in checkpoint_info:
+            checkpoint_info[checkpoint] = {
+                "arch": arch,
+                "uldata_pct": uldata_pct,
+                "count": 0,
+            }
+        checkpoint_info[checkpoint]["count"] += 1
+
         # Extract data
         row = {
+            "run_id": run.id,
+            "run_name": run.name,
             "freeze_type": freeze_type,
             "train_pct": config.get(
                 "ablation/train_pct", config.get("ablation/train_percent")
@@ -90,249 +121,342 @@ def fetch_runs():
             "run_index": config.get("ablation/run_index", 0),
         }
 
-        # Extract metrics for the last checkpoint
+        # Extract metrics - try multiple possible key patterns
         for metric in METRICS:
-            metric_key = f"test/{metric}_epoch_{CHECKPOINT}"
-            alternative_keys = [
-                f"test/{metric}_{CHECKPOINT}",
-                f"test/{metric}_{CHECKPOINT}_epoch",
-            ]
+            for ckpt in CHECKPOINTS:
+                # Try different key patterns
+                possible_keys = [
+                    f"test/{metric}_epoch_{ckpt}",
+                    f"test/{metric}_{ckpt}",
+                    f"test/{metric}_{ckpt}_epoch",
+                    f"test_{metric}_{ckpt}",
+                    f"test_{metric}_epoch_{ckpt}",
+                    # Additional patterns for step97
+                    f"test/{metric}_at_{ckpt}",
+                    f"test/{metric}_{ckpt}_checkpoint",
+                    f"test/{metric}_checkpoint_{ckpt}",
+                ]
 
-            if metric_key in summary:
-                row[f"{metric}_{CHECKPOINT}"] = summary[metric_key]
-            else:
-                for key in alternative_keys:
+                found = False
+                for key in possible_keys:
                     if key in summary:
-                        row[f"{metric}_{CHECKPOINT}"] = summary[key]
+                        row[f"{metric}_{ckpt}"] = summary[key]
+                        found = True
                         break
+
+                # If still not found, note it
+                if not found and sample_runs_checked < max_sample_runs:
+                    available_keys = [
+                        k for k in summary.keys() if metric in k and ckpt in k
+                    ]
+                    if available_keys:
+                        print(
+                            f"    Could not find {metric}_{ckpt}, but found similar: {available_keys}"
+                        )
+
+        # Debug: For first few runs, print what metrics were found
+        if sample_runs_checked < max_sample_runs:
+            print(f"\n  Run {run.name} ({checkpoint}, {freeze_type}):")
+            print(
+                f"    Available test keys: {sorted([k for k in summary.keys() if 'test' in k])}"
+            )
+
+            # Specifically check for step97 metrics
+            step97_keys = [k for k in summary.keys() if "step97" in k]
+            if step97_keys:
+                print(f"    Step97 keys found: {step97_keys}")
+                for key in step97_keys:
+                    print(f"      {key}: {summary[key]}")
+
+            found_metrics = [
+                (k, v)
+                for k, v in row.items()
+                if any(m in k for m in METRICS) and v is not None
+            ]
+            print(f"    Extracted metrics: {found_metrics}")
+
+            # Check what step97 values were extracted
+            step97_extracted = [
+                (k, v) for k, v in row.items() if "step97" in k and v is not None
+            ]
+            if step97_extracted:
+                print(f"    Step97 metrics extracted: {step97_extracted}")
+
+            sample_runs_checked += 1
 
         data.append(row)
 
     df = pd.DataFrame(data)
 
+    # Debug output
+    print(f"\nFreeze type distribution:")
+    for ft, count in freeze_type_counts.items():
+        print(f"  {ft}: {count} runs")
+
+    print(f"\nScratch checkpoint analysis:")
+    scratch_df = df[df["checkpoint"] == "scratch"]
+    print(f"  Total scratch runs: {len(scratch_df)}")
+    if len(scratch_df) > 0:
+        print(
+            f"  Freeze types in scratch runs: {scratch_df['freeze_type'].value_counts().to_dict()}"
+        )
+
+    # Print checkpoint summary
+    print(f"\nFound {len(checkpoint_info)} unique checkpoints:")
+    for ckpt, info in sorted(
+        checkpoint_info.items(), key=lambda x: (x[1]["arch"], x[1]["uldata_pct"] or 0)
+    ):
+        if ckpt != "scratch":
+            print(
+                f"  {ckpt}: {info['arch']}, {info['uldata_pct']:.1f}% unlabeled data, {info['count']} runs"
+            )
+        else:
+            print(f"  scratch: {info['count']} runs")
+
+    print(f"\nTotal runs fetched: {len(df)}")
+
+    # Analyze what metrics were successfully extracted
+    print("\n=== Metric Extraction Summary ===")
+    for metric in METRICS:
+        for ckpt in CHECKPOINTS:
+            col = f"{metric}_{ckpt}"
+            if col in df.columns:
+                non_null = df[col].notna().sum()
+                print(f"{col}: {non_null}/{len(df)} runs have this metric")
+            else:
+                print(f"{col}: Column not created (metric not found in any runs)")
+
     # Filter out rows with missing essential data
     df = df.dropna(subset=["freeze_type", "train_pct"])
+    print(f"After filtering: {len(df)} runs")
 
-    print(f"\nTotal full finetune runs fetched: {len(df)}")
-    print(
-        f"Unique pretraining percentages: {sorted(df['uldata_pct'].dropna().unique())}"
-    )
-    print(
-        f"Unique downstream training percentages: {sorted(df['train_pct'].unique() * 100)}"
-    )
-
-    # Also include scratch runs for 0% pretraining
-    print("\nFetching scratch runs for 0% pretraining baseline...")
-    scratch_data = []
-
-    runs = api.runs(PROJECT)  # Re-fetch to get scratch runs
-    for run in runs:
-        config = run.config
-        summary = run.summary._json_dict
-
-        # Only get scratch runs
-        checkpoint = config.get("ablation/checkpoint", "scratch")
-        freeze_type = config.get("ablation/freeze_type")
-
-        if checkpoint != "scratch" or freeze_type != "scratch":
-            continue
-
-        row = {
-            "freeze_type": "scratch",
-            "train_pct": config.get(
-                "ablation/train_pct", config.get("ablation/train_percent")
-            ),
-            "checkpoint": "scratch",
-            "arch": "scratch",
-            "uldata_pct": 0.0,
-            "run_index": config.get("ablation/run_index", 0),
-        }
-
-        # Extract metrics
-        for metric in METRICS:
-            metric_key = f"test/{metric}_epoch_{CHECKPOINT}"
-            alternative_keys = [
-                f"test/{metric}_{CHECKPOINT}",
-                f"test/{metric}_{CHECKPOINT}_epoch",
-            ]
-
-            if metric_key in summary:
-                row[f"{metric}_{CHECKPOINT}"] = summary[metric_key]
-            else:
-                for key in alternative_keys:
-                    if key in summary:
-                        row[f"{metric}_{CHECKPOINT}"] = summary[key]
-                        break
-
-        scratch_data.append(row)
-
-    scratch_df = pd.DataFrame(scratch_data)
-    scratch_df = scratch_df.dropna(subset=["train_pct"])
-    print(f"Found {len(scratch_df)} scratch runs")
-
-    # Combine full finetune and scratch runs
-    df = pd.concat([df, scratch_df], ignore_index=True)
-
-    return df
+    return df, checkpoint_info
 
 
 def aggregate_runs(df):
     """Aggregate multiple runs with same parameters"""
+    # Debug: Check what columns we have before aggregation
+    print("\nColumns in dataframe before aggregation:")
+    metric_cols = [col for col in df.columns if any(m in col for m in METRICS)]
+    print(f"  Metric columns found: {sorted(metric_cols)}")
+
+    step97_cols = [col for col in df.columns if "step97" in col]
+    print(f"  Step97 columns: {step97_cols}")
+
+    # Check how many non-null values for step97 metrics
+    for col in step97_cols:
+        non_null = df[col].notna().sum()
+        print(f"    {col}: {non_null} non-null values out of {len(df)} rows")
+
+    # Debug: Check scratch data before aggregation
+    print("\nScratch data before aggregation:")
+    scratch_df = df[df["freeze_type"] == "scratch"]
+    print(f"  Number of scratch runs: {len(scratch_df)}")
+    if len(scratch_df) > 0:
+        print(
+            f"  Columns with data: {[col for col in scratch_df.columns if scratch_df[col].notna().any()]}"
+        )
+        print(f"  Sample scratch run:")
+        print(scratch_df.iloc[0].to_dict())
+
+    # Group by parameters
     group_cols = ["freeze_type", "train_pct", "checkpoint", "arch", "uldata_pct"]
 
-    metric_cols = [f"{m}_{CHECKPOINT}" for m in METRICS]
+    # Check if there are duplicates
+    duplicates = df.groupby(group_cols, dropna=False).size()
+    duplicates = duplicates[duplicates > 1]
+
+    if len(duplicates) > 0:
+        print("\nFound duplicate runs for the following configurations:")
+        for idx, count in duplicates.items():
+            print(f"  {dict(zip(group_cols, idx))}: {count} runs")
+
+    # Aggregate
+    metric_cols = [f"{m}_{c}" for m in METRICS for c in CHECKPOINTS]
     existing_cols = [col for col in metric_cols if col in df.columns]
 
+    print(f"\nColumns to aggregate: {sorted(existing_cols)}")
+
+    # Check which expected columns are missing
+    missing_cols = [col for col in metric_cols if col not in df.columns]
+    if missing_cols:
+        print(f"Missing columns (not found in any runs): {sorted(missing_cols)}")
+
     agg_dict = {col: "mean" for col in existing_cols}
+    agg_dict["run_id"] = "count"  # Count number of runs
 
+    # FIXED: Use dropna=False to include NaN groups (for scratch runs with uldata_pct=NaN)
     df_agg = df.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
+    df_agg.rename(columns={"run_id": "num_runs"}, inplace=True)
 
-    print(f"\nAfter aggregation: {len(df_agg)} unique configurations")
+    # Debug: Check scratch data after aggregation
+    print("\nScratch data after aggregation:")
+    scratch_agg = df_agg[df_agg["freeze_type"] == "scratch"]
+    print(f"  Number of scratch configurations: {len(scratch_agg)}")
+    if len(scratch_agg) > 0:
+        print(f"  Train percentages: {sorted(scratch_agg['train_pct'].unique())}")
+        # Check which metrics have data
+        for metric in METRICS:
+            for ckpt in CHECKPOINTS:
+                col = f"{metric}_{ckpt}"
+                if col in scratch_agg.columns:
+                    non_null = scratch_agg[col].notna().sum()
+                    if non_null > 0:
+                        print(f"  {col}: {non_null} non-null values")
 
     return df_agg
 
 
-def create_contour_plot(df, metric, architecture):
-    """Create a contour plot for a specific metric and architecture"""
+def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
+    """Create a 2x4 grid comparing all metrics for a specific checkpoint"""
+    metrics_to_plot = ["bal_acc", "miou"]  # Main metrics for rows
 
-    # Filter data - include both the specific architecture and scratch baseline
-    data = df[(df["arch"] == architecture) | (df["checkpoint"] == "scratch")].copy()
-
-    metric_col = f"{metric}_{CHECKPOINT}"
-
-    # Drop rows with missing metric values
-    data = data.dropna(subset=[metric_col, "uldata_pct", "train_pct"])
-
-    if len(data) == 0:
-        print(f"No data for {metric} - {architecture}")
-        return None
-
-    # Convert percentages
-    pretraining_pct = data["uldata_pct"].values
-    downstream_pct = data["train_pct"].values * 100
-    metric_values = data[metric_col].values
-
-    # Print data summary
-    print(f"\nData points for {metric} - {architecture}:")
-    unique_pretrain = sorted(set(pretraining_pct))
-    unique_downstream = sorted(set(downstream_pct))
-    print(f"  Pretraining %: {unique_pretrain}")
-    print(f"  Downstream %: {unique_downstream}")
-    print(f"  Total points: {len(data)}")
-
-    # Separate counts for architecture vs scratch
-    arch_data = data[data["arch"] == architecture]
-    scratch_data = data[data["checkpoint"] == "scratch"]
-    print(f"  {architecture} points: {len(arch_data)}")
-    print(f"  Scratch points: {len(scratch_data)}")
-
-    # Create figure
-    fig, ax = plt.subplots(figsize=(10, 8))
-
-    # For log scale, we need to handle 0% values
-    pretraining_pct_plot = np.where(pretraining_pct == 0, 0.5, pretraining_pct)
-    downstream_pct_plot = np.where(downstream_pct == 0, 0.5, downstream_pct)
-
-    # Create a denser grid for smoother interpolation
-    pretrain_grid = np.logspace(np.log10(0.5), np.log10(100), 50)
-    downstream_grid = np.logspace(np.log10(0.5), np.log10(100), 50)
-
-    # Create meshgrid
-    X, Y = np.meshgrid(pretrain_grid, downstream_grid)
-
-    # Interpolate the data
-    Z = griddata(
-        (pretraining_pct_plot, downstream_pct_plot),
-        metric_values,
-        (X, Y),
-        method="cubic",
-        fill_value=np.nan,
+    # Debug: Check what columns are available for this checkpoint
+    print(f"\n  Creating plots for checkpoint: {checkpoint_name}")
+    checkpoint_data = (
+        df[df["checkpoint"] == checkpoint_name]
+        if checkpoint_name != "scratch"
+        else df[df["freeze_type"] == "scratch"]
     )
+    available_cols = [
+        col
+        for col in checkpoint_data.columns
+        if any(m in col for m in METRICS) and checkpoint_data[col].notna().any()
+    ]
+    print(f"    Available metric columns with data: {sorted(available_cols)}")
 
-    # Create contour plot
-    contour_levels = 20
-    contourf = ax.contourf(X, Y, Z, levels=contour_levels, cmap="viridis", alpha=0.8)
-    contour = ax.contour(
-        X, Y, Z, levels=contour_levels, colors="black", alpha=0.3, linewidths=0.5
-    )
+    # Specifically check step97
+    step97_cols = [col for col in available_cols if "step97" in col]
+    if step97_cols:
+        print(f"    Step97 columns available: {step97_cols}")
 
-    # Add contour labels
-    ax.clabel(contour, inline=True, fontsize=8, fmt="%.3f")
-
-    # Add colorbar
-    cbar = plt.colorbar(contourf, ax=ax)
-    cbar.set_label(METRICS[metric], fontsize=12)
-
-    # Add data points
-    scatter = ax.scatter(
-        pretraining_pct_plot,
-        downstream_pct_plot,
-        c=metric_values,
-        edgecolors="black",
-        linewidths=0.5,
-        s=100,
-        cmap="viridis",
-        zorder=10,
-        marker="o",
-    )
-
-    # Highlight scratch points (0% pretraining)
-    scratch_mask = pretraining_pct == 0
-    if np.any(scratch_mask):
-        ax.scatter(
-            pretraining_pct_plot[scratch_mask],
-            downstream_pct_plot[scratch_mask],
-            c="red",
-            edgecolors="black",
-            linewidths=2,
-            s=150,
-            zorder=11,
-            marker="s",
-            label="From Scratch",
+    # Debug: Check scratch data availability
+    scratch_data = df[df["freeze_type"] == "scratch"]
+    print(f"  Scratch data for {checkpoint_name}: {len(scratch_data)} runs")
+    if len(scratch_data) > 0:
+        print(f"    Train percentages: {sorted(scratch_data['train_pct'].unique())}")
+        print(
+            f"    Metrics available: {[col for col in scratch_data.columns if any(metric in col for metric in METRICS)]}"
         )
 
-    # Set log scale
-    ax.set_xscale("log")
-    ax.set_yscale("log")
+    fig, axes = plt.subplots(
+        len(metrics_to_plot), len(CHECKPOINTS), figsize=(20, 8)
+    )  # Increased width for 4 columns
 
-    # Set axis limits
-    ax.set_xlim(0.3, 150)
-    ax.set_ylim(0.3, 150)
+    if len(metrics_to_plot) == 1:
+        axes = axes.reshape(1, -1)
 
-    # Custom tick labels
-    xticks = [0.5, 1, 5, 10, 20, 50, 100]
-    xticklabels = ["0", "1", "5", "10", "20", "50", "100"]
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(xticklabels)
+    for i, metric in enumerate(metrics_to_plot):
+        for j, checkpoint in enumerate(CHECKPOINTS):
+            ax = axes[i, j]
 
-    yticks = [0.5, 1, 2, 5, 10, 20, 50, 100]
-    yticklabels = ["0", "1", "2", "5", "10", "20", "50", "100"]
-    ax.set_yticks(yticks)
-    ax.set_yticklabels(yticklabels)
+            metric_col = f"{metric}_{checkpoint}"
+            print(f"      Attempting to plot {metric_col}...")
 
-    # Labels
-    ax.set_xlabel("Pretraining Data %", fontsize=14)
-    ax.set_ylabel("Downstream Training Data %", fontsize=14)
+            if metric_col not in df.columns:
+                print(f"        Column {metric_col} not found in dataframe!")
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No Data",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
 
-    # Title
-    arch_name = {"vits": "ViT-S", "vitb": "ViT-B", "vitl": "ViT-L"}.get(
-        architecture, architecture.upper()
-    )
-    title = f"{METRICS[metric]} - Full Finetune (Last Checkpoint) - {arch_name}"
-    ax.set_title(title, fontsize=16, fontweight="bold")
+            # Debug scratch data for this specific metric/checkpoint combination
+            scratch_data_all = df[df["freeze_type"] == "scratch"]
+            scratch_data_metric = scratch_data_all.dropna(subset=[metric_col])
 
-    # Add grid
-    ax.grid(True, alpha=0.3, which="both")
+            print(f"    Plotting {metric}_{checkpoint}:")
+            print(f"      Total scratch runs: {len(scratch_data_all)}")
+            print(f"      Scratch runs with {metric_col}: {len(scratch_data_metric)}")
+            if len(scratch_data_metric) > 0:
+                print(f"      Values: {scratch_data_metric[metric_col].tolist()}")
 
-    # Add legend if we have scratch points
-    if np.any(scratch_mask):
-        ax.legend(loc="upper left")
+            if checkpoint_name == "scratch":
+                # For scratch page, just plot scratch data
+                if len(scratch_data_metric) > 0:
+                    scratch_data_metric = scratch_data_metric.sort_values("train_pct")
+                    ax.plot(
+                        scratch_data_metric["train_pct"] * 100,
+                        scratch_data_metric[metric_col],
+                        marker="o",
+                        label="From Scratch",
+                        linewidth=2,
+                        linestyle="-",
+                        color="tab:blue",
+                    )
+                else:
+                    print(f"      WARNING: No scratch data to plot for {metric_col}!")
+            else:
+                # For pretrained checkpoints, plot scratch baseline first
+                if len(scratch_data_metric) > 0:
+                    scratch_data_metric = scratch_data_metric.sort_values("train_pct")
+                    ax.plot(
+                        scratch_data_metric["train_pct"] * 100,
+                        scratch_data_metric[metric_col],
+                        marker="o",
+                        label="From Scratch",
+                        linewidth=2,
+                        linestyle="--",
+                        color="gray",
+                        alpha=0.7,
+                    )
 
-    # Print value ranges for debugging
-    print(
-        f"  {metric} value range: [{np.min(metric_values):.4f}, {np.max(metric_values):.4f}]"
-    )
+                # Then plot pretrained checkpoint data
+                checkpoint_data = df[df["checkpoint"] == checkpoint_name].dropna(
+                    subset=[metric_col]
+                )
 
+                for freeze_type in [
+                    "full",
+                    "frozen",
+                    "scheduled",
+                ]:  # Exclude "scratch" from this loop
+                    if freeze_type not in FREEZE_TYPES:
+                        continue
+
+                    data = checkpoint_data[
+                        checkpoint_data["freeze_type"] == freeze_type
+                    ]
+                    if len(data) == 0:
+                        continue
+
+                    # Sort by train_pct
+                    data = data.sort_values("train_pct")
+
+                    ax.plot(
+                        data["train_pct"] * 100,
+                        data[metric_col],
+                        marker="o",
+                        label=FREEZE_TYPES[freeze_type],
+                        linewidth=2,
+                        linestyle="-",
+                    )
+
+            # Formatting
+            ax.set_xlabel("Training Data %" if i == len(metrics_to_plot) - 1 else "")
+            ax.set_ylabel(METRICS[metric] if j == 0 else "")
+            ax.set_title(f"{checkpoint.capitalize()}", fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.set_xlim(0, 105)
+
+            # Only show legend on first plot
+            if i == 0 and j == 0:
+                ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+
+    # Create title with checkpoint info
+    arch_name = ARCH_MAPPING.get(arch, arch.upper())
+    if checkpoint_name == "scratch":
+        title = "From Scratch (No Pretraining)"
+    else:
+        title = f"{arch_name} - {uldata_pct:.0f}% Unlabeled Data"
+
+    plt.suptitle(title, fontsize=16, fontweight="bold")
     plt.tight_layout()
 
     return fig
@@ -340,7 +464,7 @@ def create_contour_plot(df, metric, architecture):
 
 def main():
     # Fetch and process data
-    df = fetch_runs()
+    df, checkpoint_info = fetch_runs()
 
     if len(df) == 0:
         print("No runs found matching criteria")
@@ -349,44 +473,126 @@ def main():
     # Aggregate duplicate runs
     df_agg = aggregate_runs(df)
 
-    # Get unique architectures (excluding scratch)
-    architectures = df_agg[df_agg["arch"] != "scratch"]["arch"].unique()
+    # Save raw data
+    df_agg.to_csv(OUTPUT_DIR / "saturation_data_all_checkpoints.csv", index=False)
+    print(f"\nSaved raw data to {OUTPUT_DIR / 'saturation_data_all_checkpoints.csv'}")
 
-    print(f"\nArchitectures found: {architectures}")
+    # Sort checkpoints by architecture and unlabeled data percentage
+    # Include scratch page at the beginning
+    sorted_checkpoints = [
+        (
+            "scratch",
+            checkpoint_info.get("scratch", {"arch": "scratch", "uldata_pct": None}),
+        )
+    ]
 
-    # Create plots
+    # Add pretrained checkpoints
+    pretrained_checkpoints = sorted(
+        ((k, v) for k, v in checkpoint_info.items() if k != "scratch"),
+        key=lambda x: (
+            x[1]["arch"],
+            x[1]["uldata_pct"] or float("inf"),  # None values go to the end
+        ),
+    )
+    sorted_checkpoints.extend(pretrained_checkpoints)
+
+    # Create plots for each checkpoint
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(OUTPUT_DIR / "contour_plots_full_finetune_last.pdf") as pdf:
-        for metric in METRICS:
-            # Create plots per architecture only
-            for arch in architectures:
-                print(f"\nCreating contour plot for {metric} - {arch}")
-                fig = create_contour_plot(df_agg, metric, architecture=arch)
-                if fig:
-                    pdf.savefig(fig)
-                    plt.close(fig)
+    with PdfPages(OUTPUT_DIR / "saturation_plots_all_checkpoints.pdf") as pdf:
+        for checkpoint_name, info in sorted_checkpoints:
+            print(f"\nCreating plots for {checkpoint_name}")
 
-    print(
-        f"\nSaved contour plots to {OUTPUT_DIR / 'contour_plots_full_finetune_last.pdf'}"
-    )
+            # Create comparison grid for this checkpoint
+            fig = create_checkpoint_comparison_grid(
+                df_agg, checkpoint_name, info["arch"], info["uldata_pct"]
+            )
+            pdf.savefig(fig)
+            plt.close(fig)
 
-    # Save summary data
-    summary_df = df_agg[
-        ["freeze_type", "arch", "uldata_pct", "train_pct"]
-        + [
-            f"{m}_{CHECKPOINT}"
-            for m in METRICS
-            if f"{m}_{CHECKPOINT}" in df_agg.columns
-        ]
-    ]
-    summary_df = summary_df.sort_values(["uldata_pct", "train_pct"])
-    summary_df.to_csv(
-        OUTPUT_DIR / "contour_plot_data_full_finetune_last.csv", index=False
-    )
-    print(
-        f"\nSaved summary data to {OUTPUT_DIR / 'contour_plot_data_full_finetune_last.csv'}"
-    )
+    print(f"\nSaved plots to {OUTPUT_DIR / 'saturation_plots_all_checkpoints.pdf'}")
+
+    # Print summary statistics
+    print("\n=== Summary Statistics ===")
+
+    # Print which checkpoints were evaluated
+    print(f"\nCheckpoints evaluated: {CHECKPOINTS}")
+    print(f"Metrics evaluated: {list(METRICS.keys())}")
+
+    # First print scratch statistics
+    print("\nScratch (baseline):")
+    scratch_data = df_agg[df_agg["checkpoint"] == "scratch"]
+
+    for freeze_type in scratch_data["freeze_type"].unique():
+        print(f"\n  {FREEZE_TYPES.get(freeze_type, freeze_type)}:")
+        subset = scratch_data[scratch_data["freeze_type"] == freeze_type]
+        print(f"    Data points: {len(subset)}")
+        print(f"    Train percentages: {sorted(subset['train_pct'].unique() * 100)}%")
+
+        # Best performance for different checkpoints
+        for ckpt in ["best", "step97"]:
+            if f"bal_acc_{ckpt}" in subset.columns and len(subset) > 0:
+                valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}"])
+                if len(valid_subset) > 0:
+                    best_idx = valid_subset[f"bal_acc_{ckpt}"].idxmax()
+                    if pd.notna(best_idx):
+                        best_bal_acc = valid_subset.loc[best_idx]
+                        print(
+                            f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data"
+                        )
+
+            if f"miou_{ckpt}" in subset.columns and len(subset) > 0:
+                valid_subset = subset.dropna(subset=[f"miou_{ckpt}"])
+                if len(valid_subset) > 0:
+                    best_idx = valid_subset[f"miou_{ckpt}"].idxmax()
+                    if pd.notna(best_idx):
+                        best_miou = valid_subset.loc[best_idx]
+                        print(
+                            f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}']:.4f} at {best_miou['train_pct']*100:.0f}% data"
+                        )
+
+    # Then print pretrained checkpoint statistics
+    for checkpoint_name, info in pretrained_checkpoints:
+        print(f"\n{checkpoint_name}:")
+        checkpoint_data = df_agg[df_agg["checkpoint"] == checkpoint_name]
+
+        if len(checkpoint_data) == 0:
+            print("  No data")
+            continue
+
+        print(f"  Architecture: {ARCH_MAPPING.get(info['arch'], info['arch'])}")
+        if info["uldata_pct"] is not None:
+            print(f"  Unlabeled data: {info['uldata_pct']:.1f}%")
+
+        for freeze_type in checkpoint_data["freeze_type"].unique():
+            print(f"\n  {FREEZE_TYPES.get(freeze_type, freeze_type)}:")
+            subset = checkpoint_data[checkpoint_data["freeze_type"] == freeze_type]
+            print(f"    Data points: {len(subset)}")
+            print(
+                f"    Train percentages: {sorted(subset['train_pct'].unique() * 100)}%"
+            )
+
+            # Best performance for different checkpoints
+            for ckpt in ["best", "step97"]:
+                if f"bal_acc_{ckpt}" in subset.columns and len(subset) > 0:
+                    valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}"])
+                    if len(valid_subset) > 0:
+                        best_idx = valid_subset[f"bal_acc_{ckpt}"].idxmax()
+                        if pd.notna(best_idx):
+                            best_bal_acc = valid_subset.loc[best_idx]
+                            print(
+                                f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data"
+                            )
+
+                if f"miou_{ckpt}" in subset.columns and len(subset) > 0:
+                    valid_subset = subset.dropna(subset=[f"miou_{ckpt}"])
+                    if len(valid_subset) > 0:
+                        best_idx = valid_subset[f"miou_{ckpt}"].idxmax()
+                        if pd.notna(best_idx):
+                            best_miou = valid_subset.loc[best_idx]
+                            print(
+                                f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}']:.4f} at {best_miou['train_pct']*100:.0f}% data"
+                            )
 
 
 if __name__ == "__main__":
