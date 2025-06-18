@@ -73,8 +73,14 @@ def fetch_runs():
 
     data = []
     missing_flops_count = 0
+    filtered_count = 0
 
     for run in runs:
+        # Filter out unfinished or crashed runs
+        if run.state != "finished":
+            filtered_count += 1
+            continue
+
         # Get config and summary data
         config = run.config
         summary = run.summary._json_dict
@@ -135,6 +141,7 @@ def fetch_runs():
     df = pd.DataFrame(data)
 
     print(f"\nTotal runs with 100% unlabeled data (or scratch): {len(df)}")
+    print(f"Runs filtered for not being finished: {filtered_count}")
     print(f"Runs missing flops/total_training: {missing_flops_count}")
 
     # Filter out rows with missing essential data
@@ -150,7 +157,7 @@ def fetch_runs():
 
 
 def aggregate_runs(df):
-    """Aggregate multiple runs with same parameters"""
+    """Aggregate multiple runs with same parameters, computing mean values"""
     group_cols = ["freeze_type", "train_pct", "checkpoint", "arch", "uldata_pct"]
 
     # For aggregation, we want to average both metrics and FLOPs
@@ -165,6 +172,12 @@ def aggregate_runs(df):
     df_agg.rename(columns={"run_id": "num_runs"}, inplace=True)
 
     print(f"\nAfter aggregation: {len(df_agg)} unique configurations")
+
+    # Check for configurations with different numbers of runs
+    run_counts = df_agg["num_runs"].value_counts().sort_index()
+    print("\nRun count distribution:")
+    for count, freq in run_counts.items():
+        print(f"  {count} runs: {freq} configurations")
 
     return df_agg
 
@@ -489,8 +502,8 @@ def main():
     df_agg = aggregate_runs(df)
 
     # Save raw data
-    df_agg.to_csv(OUTPUT_DIR / "pareto_plot_data.csv", index=False)
-    print(f"\nSaved raw data to {OUTPUT_DIR / 'pareto_plot_data.csv'}")
+    df_agg.to_csv(OUTPUT_DIR / "pareto_plot_data_averaged.csv", index=False)
+    print(f"\nSaved raw data to {OUTPUT_DIR / 'pareto_plot_data_averaged.csv'}")
 
     # Get unique architectures (excluding scratch)
     architectures = sorted(df_agg[df_agg["arch"] != "scratch"]["arch"].unique())
@@ -516,7 +529,7 @@ def main():
     # Create plots
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(OUTPUT_DIR / "pareto_plots.pdf") as pdf:
+    with PdfPages(OUTPUT_DIR / "pareto_plots_averaged.pdf") as pdf:
         for metric in METRICS:
             # Individual plots for each architecture
             for arch in architectures:
@@ -533,7 +546,7 @@ def main():
                 pdf.savefig(fig)
                 plt.close(fig)
 
-    print(f"\nSaved plots to {OUTPUT_DIR / 'pareto_plots.pdf'}")
+    print(f"\nSaved plots to {OUTPUT_DIR / 'pareto_plots_averaged.pdf'}")
 
 
 if __name__ == "__main__":

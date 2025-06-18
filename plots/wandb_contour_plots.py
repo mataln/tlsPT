@@ -57,8 +57,14 @@ def fetch_runs():
     runs = api.runs(PROJECT)
 
     data = []
+    filtered_count = 0
 
     for run in runs:
+        # Filter out unfinished or crashed runs
+        if run.state != "finished":
+            filtered_count += 1
+            continue
+
         # Get config and summary data
         config = run.config
         summary = run.summary._json_dict
@@ -114,6 +120,7 @@ def fetch_runs():
     df = df.dropna(subset=["freeze_type", "train_pct"])
 
     print(f"\nTotal full finetune runs fetched: {len(df)}")
+    print(f"Runs filtered for not being finished: {filtered_count}")
     print(
         f"Unique pretraining percentages: {sorted(df['uldata_pct'].dropna().unique())}"
     )
@@ -127,6 +134,10 @@ def fetch_runs():
 
     runs = api.runs(PROJECT)  # Re-fetch to get scratch runs
     for run in runs:
+        # Filter out unfinished or crashed runs
+        if run.state != "finished":
+            continue
+
         config = run.config
         summary = run.summary._json_dict
 
@@ -184,10 +195,18 @@ def aggregate_runs(df):
     existing_cols = [col for col in metric_cols if col in df.columns]
 
     agg_dict = {col: "mean" for col in existing_cols}
+    agg_dict["run_index"] = "count"  # Count number of runs
 
     df_agg = df.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
+    df_agg.rename(columns={"run_index": "num_runs"}, inplace=True)
 
     print(f"\nAfter aggregation: {len(df_agg)} unique configurations")
+
+    # Check for configurations with different numbers of runs
+    run_counts = df_agg["num_runs"].value_counts().sort_index()
+    print("\nRun count distribution:")
+    for count, freq in run_counts.items():
+        print(f"  {count} runs: {freq} configurations")
 
     return df_agg
 
@@ -357,7 +376,7 @@ def main():
     # Create plots
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(OUTPUT_DIR / "contour_plots_full_finetune_last.pdf") as pdf:
+    with PdfPages(OUTPUT_DIR / "contour_plots_full_finetune_last_averaged.pdf") as pdf:
         for metric in METRICS:
             # Create plots per architecture only
             for arch in architectures:
@@ -368,12 +387,12 @@ def main():
                     plt.close(fig)
 
     print(
-        f"\nSaved contour plots to {OUTPUT_DIR / 'contour_plots_full_finetune_last.pdf'}"
+        f"\nSaved contour plots to {OUTPUT_DIR / 'contour_plots_full_finetune_last_averaged.pdf'}"
     )
 
     # Save summary data
     summary_df = df_agg[
-        ["freeze_type", "arch", "uldata_pct", "train_pct"]
+        ["freeze_type", "arch", "uldata_pct", "train_pct", "num_runs"]
         + [
             f"{m}_{CHECKPOINT}"
             for m in METRICS
@@ -382,10 +401,10 @@ def main():
     ]
     summary_df = summary_df.sort_values(["uldata_pct", "train_pct"])
     summary_df.to_csv(
-        OUTPUT_DIR / "contour_plot_data_full_finetune_last.csv", index=False
+        OUTPUT_DIR / "contour_plot_data_full_finetune_last_averaged.csv", index=False
     )
     print(
-        f"\nSaved summary data to {OUTPUT_DIR / 'contour_plot_data_full_finetune_last.csv'}"
+        f"\nSaved summary data to {OUTPUT_DIR / 'contour_plot_data_full_finetune_last_averaged.csv'}"
     )
 
 

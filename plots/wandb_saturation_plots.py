@@ -72,6 +72,7 @@ def fetch_runs():
     data = []
     checkpoint_info = {}  # Track unique checkpoints
     freeze_type_counts = {}  # Debug: track freeze types
+    filtered_runs = []  # Track why runs were filtered out
 
     # Track all unique metric keys we find
 
@@ -84,8 +85,28 @@ def fetch_runs():
         config = run.config
         summary = run.summary._json_dict
 
+        # Filter out unfinished or crashed runs
+        if run.state != "finished":
+            filtered_runs.append(
+                {
+                    "run_id": run.id,
+                    "run_name": run.name,
+                    "reason": f"Run state is '{run.state}' (not finished)",
+                    "checkpoint": config.get("ablation/checkpoint", "unknown"),
+                    "freeze_type": config.get("ablation/freeze_type", "unknown"),
+                }
+            )
+            continue
+
         # Skip if no ablation data
         if "ablation/freeze_type" not in config:
+            filtered_runs.append(
+                {
+                    "run_id": run.id,
+                    "run_name": run.name,
+                    "reason": "No ablation/freeze_type in config",
+                }
+            )
             continue
 
         # Extract checkpoint name and freeze type
@@ -214,6 +235,7 @@ def fetch_runs():
             print(f"  scratch: {info['count']} runs")
 
     print(f"\nTotal runs fetched: {len(df)}")
+    print(f"Runs filtered during fetch: {len(filtered_runs)}")
 
     # Analyze what metrics were successfully extracted
     print("\n=== Metric Extraction Summary ===")
@@ -227,14 +249,41 @@ def fetch_runs():
                 print(f"{col}: Column not created (metric not found in any runs)")
 
     # Filter out rows with missing essential data
+    df_before_filter = len(df)
     df = df.dropna(subset=["freeze_type", "train_pct"])
-    print(f"After filtering: {len(df)} runs")
+    if df_before_filter != len(df):
+        filtered_out = df_before_filter - len(df)
+        print(
+            f"\nFiltered out {filtered_out} runs due to missing freeze_type or train_pct"
+        )
+        # Show which ones were filtered
+        df_all = pd.DataFrame(data)
+        missing_data = df_all[df_all["freeze_type"].isna() | df_all["train_pct"].isna()]
+        for _, row in missing_data.iterrows():
+            reason = []
+            if pd.isna(row.get("freeze_type")):
+                reason.append("missing freeze_type")
+            if pd.isna(row.get("train_pct")):
+                reason.append("missing train_pct")
+            filtered_runs.append(
+                {
+                    "run_id": row["run_id"],
+                    "run_name": row["run_name"],
+                    "reason": ", ".join(reason),
+                    "checkpoint": row.get("checkpoint", "unknown"),
+                    "arch": row.get("arch", "unknown"),
+                    "uldata_pct": row.get("uldata_pct", "unknown"),
+                }
+            )
 
-    return df, checkpoint_info
+    print(f"After filtering: {len(df)} runs")
+    print(f"Total filtered runs: {len(filtered_runs)}")
+
+    return df, checkpoint_info, filtered_runs
 
 
 def aggregate_runs(df):
-    """Aggregate multiple runs with same parameters"""
+    """Aggregate multiple runs with same parameters, computing mean and std"""
     # Debug: Check what columns we have before aggregation
     print("\nColumns in dataframe before aggregation:")
     metric_cols = [col for col in df.columns if any(m in col for m in METRICS)]
@@ -271,7 +320,7 @@ def aggregate_runs(df):
         for idx, count in duplicates.items():
             print(f"  {dict(zip(group_cols, idx))}: {count} runs")
 
-    # Aggregate
+    # Aggregate with both mean and std
     metric_cols = [f"{m}_{c}" for m in METRICS for c in CHECKPOINTS]
     existing_cols = [col for col in metric_cols if col in df.columns]
 
@@ -282,12 +331,25 @@ def aggregate_runs(df):
     if missing_cols:
         print(f"Missing columns (not found in any runs): {sorted(missing_cols)}")
 
-    agg_dict = {col: "mean" for col in existing_cols}
+    # Create aggregation dictionary for mean and std
+    agg_dict = {}
+    for col in existing_cols:
+        agg_dict[col] = ["mean", "std", "count"]
     agg_dict["run_id"] = "count"  # Count number of runs
 
     # FIXED: Use dropna=False to include NaN groups (for scratch runs with uldata_pct=NaN)
-    df_agg = df.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
-    df_agg.rename(columns={"run_id": "num_runs"}, inplace=True)
+    df_agg = df.groupby(group_cols, dropna=False).agg(agg_dict)
+
+    # Flatten column names
+    df_agg.columns = [
+        "_".join(col).strip() if col[1] else col[0] for col in df_agg.columns.values
+    ]
+
+    # Reset index
+    df_agg = df_agg.reset_index()
+
+    # Rename run count column
+    df_agg.rename(columns={"run_id_count": "num_runs"}, inplace=True)
 
     # Debug: Check scratch data after aggregation
     print("\nScratch data after aggregation:")
@@ -298,7 +360,7 @@ def aggregate_runs(df):
         # Check which metrics have data
         for metric in METRICS:
             for ckpt in CHECKPOINTS:
-                col = f"{metric}_{ckpt}"
+                col = f"{metric}_{ckpt}_mean"
                 if col in scratch_agg.columns:
                     non_null = scratch_agg[col].notna().sum()
                     if non_null > 0:
@@ -350,11 +412,13 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
         for j, checkpoint in enumerate(CHECKPOINTS):
             ax = axes[i, j]
 
-            metric_col = f"{metric}_{checkpoint}"
-            print(f"      Attempting to plot {metric_col}...")
+            metric_mean_col = f"{metric}_{checkpoint}_mean"
+            metric_std_col = f"{metric}_{checkpoint}_std"
+            f"{metric}_{checkpoint}_count"
+            print(f"      Attempting to plot {metric_mean_col}...")
 
-            if metric_col not in df.columns:
-                print(f"        Column {metric_col} not found in dataframe!")
+            if metric_mean_col not in df.columns:
+                print(f"        Column {metric_mean_col} not found in dataframe!")
                 ax.text(
                     0.5,
                     0.5,
@@ -369,47 +433,73 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
 
             # Debug scratch data for this specific metric/checkpoint combination
             scratch_data_all = df[df["freeze_type"] == "scratch"]
-            scratch_data_metric = scratch_data_all.dropna(subset=[metric_col])
+            scratch_data_metric = scratch_data_all.dropna(subset=[metric_mean_col])
 
             print(f"    Plotting {metric}_{checkpoint}:")
             print(f"      Total scratch runs: {len(scratch_data_all)}")
-            print(f"      Scratch runs with {metric_col}: {len(scratch_data_metric)}")
+            print(
+                f"      Scratch runs with {metric_mean_col}: {len(scratch_data_metric)}"
+            )
             if len(scratch_data_metric) > 0:
-                print(f"      Values: {scratch_data_metric[metric_col].tolist()}")
+                print(f"      Values: {scratch_data_metric[metric_mean_col].tolist()}")
 
             if checkpoint_name == "scratch":
                 # For scratch page, just plot scratch data
                 if len(scratch_data_metric) > 0:
                     scratch_data_metric = scratch_data_metric.sort_values("train_pct")
-                    ax.plot(
-                        scratch_data_metric["train_pct"] * 100,
-                        scratch_data_metric[metric_col],
+
+                    # Plot with error bars
+                    x_vals = scratch_data_metric["train_pct"] * 100
+                    y_vals = scratch_data_metric[metric_mean_col]
+                    y_err = scratch_data_metric[metric_std_col].fillna(
+                        0
+                    )  # Fill NaN std with 0
+
+                    ax.errorbar(
+                        x_vals,
+                        y_vals,
+                        yerr=y_err,
                         marker="o",
                         label="From Scratch",
                         linewidth=2,
                         linestyle="-",
                         color="tab:blue",
+                        capsize=5,
+                        capthick=1.5,
+                        elinewidth=1.5,
                     )
                 else:
-                    print(f"      WARNING: No scratch data to plot for {metric_col}!")
+                    print(
+                        f"      WARNING: No scratch data to plot for {metric_mean_col}!"
+                    )
             else:
                 # For pretrained checkpoints, plot scratch baseline first
                 if len(scratch_data_metric) > 0:
                     scratch_data_metric = scratch_data_metric.sort_values("train_pct")
-                    ax.plot(
-                        scratch_data_metric["train_pct"] * 100,
-                        scratch_data_metric[metric_col],
+
+                    # Plot with error bars
+                    x_vals = scratch_data_metric["train_pct"] * 100
+                    y_vals = scratch_data_metric[metric_mean_col]
+                    y_err = scratch_data_metric[metric_std_col].fillna(0)
+
+                    ax.errorbar(
+                        x_vals,
+                        y_vals,
+                        yerr=y_err,
                         marker="o",
                         label="From Scratch",
                         linewidth=2,
                         linestyle="--",
                         color="gray",
                         alpha=0.7,
+                        capsize=5,
+                        capthick=1.5,
+                        elinewidth=1.5,
                     )
 
                 # Then plot pretrained checkpoint data
                 checkpoint_data = df[df["checkpoint"] == checkpoint_name].dropna(
-                    subset=[metric_col]
+                    subset=[metric_mean_col]
                 )
 
                 for freeze_type in [
@@ -429,13 +519,22 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                     # Sort by train_pct
                     data = data.sort_values("train_pct")
 
-                    ax.plot(
-                        data["train_pct"] * 100,
-                        data[metric_col],
+                    # Plot with error bars
+                    x_vals = data["train_pct"] * 100
+                    y_vals = data[metric_mean_col]
+                    y_err = data[metric_std_col].fillna(0)
+
+                    ax.errorbar(
+                        x_vals,
+                        y_vals,
+                        yerr=y_err,
                         marker="o",
                         label=FREEZE_TYPES[freeze_type],
                         linewidth=2,
                         linestyle="-",
+                        capsize=5,
+                        capthick=1.5,
+                        elinewidth=1.5,
                     )
 
             # Formatting
@@ -462,20 +561,159 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
     return fig
 
 
+def check_missing_runs(df_agg, df_all, filtered_runs, expected_runs=5):
+    """Check for configurations with fewer than expected runs and diagnose why"""
+    missing_configs = []
+
+    # Group by the parameters we care about
+    group_cols = ["freeze_type", "train_pct", "checkpoint", "arch", "uldata_pct"]
+
+    for _, row in df_agg.iterrows():
+        if row["num_runs"] < expected_runs:
+            config = {col: row[col] for col in group_cols}
+            config["num_runs"] = row["num_runs"]
+            config["expected_runs"] = expected_runs
+            config["missing_runs"] = expected_runs - row["num_runs"]
+            missing_configs.append(config)
+
+    if missing_configs:
+        print(f"\n=== WARNING: Configurations with fewer than {expected_runs} runs ===")
+        print(f"Total configurations with missing runs: {len(missing_configs)}")
+
+        # Sort by number of runs and other parameters
+        missing_configs.sort(
+            key=lambda x: (
+                x["num_runs"],
+                x["checkpoint"],
+                x["freeze_type"],
+                x["train_pct"],
+            )
+        )
+
+        for config in missing_configs:
+            print(
+                f"\n  Configuration: {config['checkpoint']} - {config['freeze_type']} - "
+                f"{config['train_pct']*100:.0f}% data - "
+                f"{config['arch']} - {config['uldata_pct']}% unlabeled"
+            )
+            print(
+                f"    Found {config['num_runs']} runs, expected {config['expected_runs']}"
+            )
+
+            # Look for near-matches in the full dataset
+            print("    Checking for near-matches in all runs...")
+
+            # Check all runs for similar configurations
+            near_matches = []
+            for _, run in df_all.iterrows():
+                # Check each field
+                matches = {
+                    "checkpoint": run.get("checkpoint") == config["checkpoint"],
+                    "freeze_type": run.get("freeze_type") == config["freeze_type"],
+                    "train_pct": abs(run.get("train_pct", -999) - config["train_pct"])
+                    < 0.001,
+                    "arch": run.get("arch") == config["arch"],
+                    "uldata_pct": abs(
+                        run.get("uldata_pct", -999) - config["uldata_pct"]
+                    )
+                    < 0.1,
+                }
+
+                # If most fields match but not all, it's a near-match
+                match_count = sum(matches.values())
+                if match_count >= 4 and match_count < 5:
+                    mismatch_fields = [k for k, v in matches.items() if not v]
+                    near_matches.append(
+                        {
+                            "run_id": run["run_id"],
+                            "run_name": run["run_name"],
+                            "mismatch_fields": mismatch_fields,
+                            "values": {k: run.get(k) for k in mismatch_fields},
+                        }
+                    )
+
+            if near_matches:
+                print(f"    Found {len(near_matches)} near-matches:")
+                for nm in near_matches[:3]:  # Show first 3
+                    print(
+                        f"      Run {nm['run_id']}: mismatched on {nm['mismatch_fields']}"
+                    )
+                    print(f"        Values: {nm['values']}")
+
+            # Also specifically look for exact matches to understand the count
+            print("    Checking exact matches in aggregated data...")
+            exact_matches = df_all[
+                (df_all["checkpoint"] == config["checkpoint"])
+                & (df_all["freeze_type"] == config["freeze_type"])
+                & (abs(df_all["train_pct"] - config["train_pct"]) < 0.001)
+                & (df_all["arch"] == config["arch"])
+                & (abs(df_all["uldata_pct"] - config["uldata_pct"]) < 0.1)
+            ]
+
+            if len(exact_matches) > 0:
+                print(f"    Found {len(exact_matches)} exact matches:")
+                for idx, match in exact_matches.iterrows():
+                    print(f"      Run {match['run_id']} ({match['run_name']})")
+                    print(f"        run_index: {match.get('run_index', 'unknown')}")
+
+                # Check run indices to see which one is missing
+                run_indices = sorted(exact_matches["run_index"].tolist())
+                expected_indices = list(range(expected_runs))
+                missing_indices = [i for i in expected_indices if i not in run_indices]
+                if missing_indices:
+                    print(f"    Missing run indices: {missing_indices}")
+                else:
+                    print(
+                        f"    All run indices present but only {len(run_indices)} runs found"
+                    )
+            # Check filtered runs for this configuration
+            print("    Checking filtered runs...")
+            relevant_filtered = []
+            for fr in filtered_runs:
+                # Check if this filtered run might match our missing config
+                if (
+                    fr.get("checkpoint") == config["checkpoint"]
+                    or fr.get("arch") == config["arch"]
+                    or str(fr.get("uldata_pct")) == str(config["uldata_pct"])
+                ):
+                    relevant_filtered.append(fr)
+
+            if relevant_filtered:
+                print(
+                    f"    Found {len(relevant_filtered)} potentially related filtered runs:"
+                )
+                for rf in relevant_filtered[:3]:  # Show first 3
+                    print(f"      Run {rf['run_id']}: {rf['reason']}")
+                    print(f"        Checkpoint: {rf.get('checkpoint', 'unknown')}")
+            else:
+                print("    No related filtered runs found")
+    else:
+        print(f"\n=== All configurations have at least {expected_runs} runs ===")
+
+    return missing_configs
+
+
 def main():
     # Fetch and process data
-    df, checkpoint_info = fetch_runs()
+    df, checkpoint_info, filtered_runs = fetch_runs()
 
     if len(df) == 0:
         print("No runs found matching criteria")
         return
 
+    # Keep a copy of the full dataframe before aggregation for diagnostics
+    df_full = df.copy()
+
     # Aggregate duplicate runs
     df_agg = aggregate_runs(df)
 
     # Save raw data
-    df_agg.to_csv(OUTPUT_DIR / "saturation_data_all_checkpoints.csv", index=False)
-    print(f"\nSaved raw data to {OUTPUT_DIR / 'saturation_data_all_checkpoints.csv'}")
+    df_agg.to_csv(
+        OUTPUT_DIR / "saturation_data_all_checkpoints_with_std.csv", index=False
+    )
+    print(
+        f"\nSaved raw data to {OUTPUT_DIR / 'saturation_data_all_checkpoints_with_std.csv'}"
+    )
 
     # Sort checkpoints by architecture and unlabeled data percentage
     # Include scratch page at the beginning
@@ -499,7 +737,9 @@ def main():
     # Create plots for each checkpoint
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(OUTPUT_DIR / "saturation_plots_all_checkpoints.pdf") as pdf:
+    with PdfPages(
+        OUTPUT_DIR / "saturation_plots_all_checkpoints_with_errorbars.pdf"
+    ) as pdf:
         for checkpoint_name, info in sorted_checkpoints:
             print(f"\nCreating plots for {checkpoint_name}")
 
@@ -510,7 +750,9 @@ def main():
             pdf.savefig(fig)
             plt.close(fig)
 
-    print(f"\nSaved plots to {OUTPUT_DIR / 'saturation_plots_all_checkpoints.pdf'}")
+    print(
+        f"\nSaved plots to {OUTPUT_DIR / 'saturation_plots_all_checkpoints_with_errorbars.pdf'}"
+    )
 
     # Print summary statistics
     print("\n=== Summary Statistics ===")
@@ -531,24 +773,24 @@ def main():
 
         # Best performance for different checkpoints
         for ckpt in ["best", "step97"]:
-            if f"bal_acc_{ckpt}" in subset.columns and len(subset) > 0:
-                valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}"])
+            if f"bal_acc_{ckpt}_mean" in subset.columns and len(subset) > 0:
+                valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}_mean"])
                 if len(valid_subset) > 0:
-                    best_idx = valid_subset[f"bal_acc_{ckpt}"].idxmax()
+                    best_idx = valid_subset[f"bal_acc_{ckpt}_mean"].idxmax()
                     if pd.notna(best_idx):
                         best_bal_acc = valid_subset.loc[best_idx]
                         print(
-                            f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data"
+                            f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}_mean']:.4f} ± {best_bal_acc[f'bal_acc_{ckpt}_std']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data ({best_bal_acc['num_runs']} runs)"
                         )
 
-            if f"miou_{ckpt}" in subset.columns and len(subset) > 0:
-                valid_subset = subset.dropna(subset=[f"miou_{ckpt}"])
+            if f"miou_{ckpt}_mean" in subset.columns and len(subset) > 0:
+                valid_subset = subset.dropna(subset=[f"miou_{ckpt}_mean"])
                 if len(valid_subset) > 0:
-                    best_idx = valid_subset[f"miou_{ckpt}"].idxmax()
+                    best_idx = valid_subset[f"miou_{ckpt}_mean"].idxmax()
                     if pd.notna(best_idx):
                         best_miou = valid_subset.loc[best_idx]
                         print(
-                            f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}']:.4f} at {best_miou['train_pct']*100:.0f}% data"
+                            f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}_mean']:.4f} ± {best_miou[f'miou_{ckpt}_std']:.4f} at {best_miou['train_pct']*100:.0f}% data ({best_miou['num_runs']} runs)"
                         )
 
     # Then print pretrained checkpoint statistics
@@ -574,25 +816,28 @@ def main():
 
             # Best performance for different checkpoints
             for ckpt in ["best", "step97"]:
-                if f"bal_acc_{ckpt}" in subset.columns and len(subset) > 0:
-                    valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}"])
+                if f"bal_acc_{ckpt}_mean" in subset.columns and len(subset) > 0:
+                    valid_subset = subset.dropna(subset=[f"bal_acc_{ckpt}_mean"])
                     if len(valid_subset) > 0:
-                        best_idx = valid_subset[f"bal_acc_{ckpt}"].idxmax()
+                        best_idx = valid_subset[f"bal_acc_{ckpt}_mean"].idxmax()
                         if pd.notna(best_idx):
                             best_bal_acc = valid_subset.loc[best_idx]
                             print(
-                                f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data"
+                                f"    Best Bal Acc ({ckpt}): {best_bal_acc[f'bal_acc_{ckpt}_mean']:.4f} ± {best_bal_acc[f'bal_acc_{ckpt}_std']:.4f} at {best_bal_acc['train_pct']*100:.0f}% data ({best_bal_acc['num_runs']} runs)"
                             )
 
-                if f"miou_{ckpt}" in subset.columns and len(subset) > 0:
-                    valid_subset = subset.dropna(subset=[f"miou_{ckpt}"])
+                if f"miou_{ckpt}_mean" in subset.columns and len(subset) > 0:
+                    valid_subset = subset.dropna(subset=[f"miou_{ckpt}_mean"])
                     if len(valid_subset) > 0:
-                        best_idx = valid_subset[f"miou_{ckpt}"].idxmax()
+                        best_idx = valid_subset[f"miou_{ckpt}_mean"].idxmax()
                         if pd.notna(best_idx):
                             best_miou = valid_subset.loc[best_idx]
                             print(
-                                f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}']:.4f} at {best_miou['train_pct']*100:.0f}% data"
+                                f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}_mean']:.4f} ± {best_miou[f'miou_{ckpt}_std']:.4f} at {best_miou['train_pct']*100:.0f}% data ({best_miou['num_runs']} runs)"
                             )
+
+    # Check for missing runs
+    check_missing_runs(df_agg, df_full, filtered_runs, expected_runs=5)
 
 
 if __name__ == "__main__":
