@@ -4,9 +4,9 @@ import re
 import warnings
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 
 import wandb
 
@@ -19,10 +19,6 @@ api = wandb.Api()
 PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-# Styling
-plt.style.use("seaborn-v0_8-whitegrid")
-sns.set_palette("husl")
 
 # Define metrics to plot
 METRICS = {
@@ -46,6 +42,23 @@ ARCH_MAPPING = {
     "vitb": "ViT-B",
     "vitl": "ViT-L",
 }
+
+
+def setup_matplotlib():
+    """
+    Configure matplotlib for publication-quality figures.
+    Remove font-specific settings to avoid errors.
+    """
+    mpl.rcParams["axes.labelsize"] = 14  # Increased from 12
+    mpl.rcParams["axes.titlesize"] = 16  # Increased from 14
+    mpl.rcParams["xtick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["ytick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["legend.fontsize"] = 14  # Increased from 10
+    mpl.rcParams["figure.titlesize"] = 16  # Kept the same
+    mpl.rcParams["figure.dpi"] = 300
+    mpl.rcParams["savefig.dpi"] = 300
+    mpl.rcParams["savefig.bbox"] = "tight"
+    mpl.rcParams["savefig.pad_inches"] = 0.1
 
 
 def parse_checkpoint_name(checkpoint_name):
@@ -402,7 +415,7 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
         )
 
     fig, axes = plt.subplots(
-        len(metrics_to_plot), len(CHECKPOINTS), figsize=(20, 8)
+        len(metrics_to_plot), len(CHECKPOINTS), figsize=(20, 10)
     )  # Increased width for 4 columns
 
     if len(metrics_to_plot) == 1:
@@ -426,6 +439,7 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                     ha="center",
                     va="center",
                     transform=ax.transAxes,
+                    fontsize=14,
                 )
                 ax.set_xticks([])
                 ax.set_yticks([])
@@ -461,9 +475,10 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         yerr=y_err,
                         marker="o",
                         label="From Scratch",
-                        linewidth=2,
+                        linewidth=2.5,
                         linestyle="-",
                         color="tab:blue",
+                        markersize=10,
                         capsize=5,
                         capthick=1.5,
                         elinewidth=1.5,
@@ -488,10 +503,11 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         yerr=y_err,
                         marker="o",
                         label="From Scratch",
-                        linewidth=2,
+                        linewidth=2.5,
                         linestyle="--",
                         color="gray",
                         alpha=0.7,
+                        markersize=10,
                         capsize=5,
                         capthick=1.5,
                         elinewidth=1.5,
@@ -530,8 +546,9 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         yerr=y_err,
                         marker="o",
                         label=FREEZE_TYPES[freeze_type],
-                        linewidth=2,
+                        linewidth=2.5,
                         linestyle="-",
+                        markersize=10,
                         capsize=5,
                         capthick=1.5,
                         elinewidth=1.5,
@@ -540,13 +557,13 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
             # Formatting
             ax.set_xlabel("Training Data %" if i == len(metrics_to_plot) - 1 else "")
             ax.set_ylabel(METRICS[metric] if j == 0 else "")
-            ax.set_title(f"{checkpoint.capitalize()}", fontsize=12)
+            ax.set_title(f"{checkpoint.capitalize()}", fontsize=14)
             ax.grid(True, alpha=0.3)
             ax.set_xlim(0, 105)
 
             # Only show legend on first plot
             if i == 0 and j == 0:
-                ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+                ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=11)
 
     # Create title with checkpoint info
     arch_name = ARCH_MAPPING.get(arch, arch.upper())
@@ -593,6 +610,9 @@ def find_minimum_run_config(df_agg):
 
 
 def main():
+    # Set up matplotlib for publication quality
+    setup_matplotlib()
+
     # Fetch and process data
     df, checkpoint_info, filtered_runs = fetch_runs()
 

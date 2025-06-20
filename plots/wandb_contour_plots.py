@@ -4,6 +4,7 @@ import re
 import warnings
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -21,9 +22,6 @@ PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Styling
-plt.style.use("seaborn-v0_8-whitegrid")
-
 # Define metrics to plot
 METRICS = {
     "bal_acc": "Balanced Accuracy",
@@ -33,6 +31,23 @@ METRICS = {
 # Fixed parameters - only full finetune and last checkpoint
 FREEZE_TYPE = "full"
 CHECKPOINT = "last"
+
+
+def setup_matplotlib():
+    """
+    Configure matplotlib for publication-quality figures.
+    Remove font-specific settings to avoid errors.
+    """
+    mpl.rcParams["axes.labelsize"] = 14  # Increased from 12
+    mpl.rcParams["axes.titlesize"] = 16  # Increased from 14
+    mpl.rcParams["xtick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["ytick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["legend.fontsize"] = 14  # Increased from 10
+    mpl.rcParams["figure.titlesize"] = 16  # Kept the same
+    mpl.rcParams["figure.dpi"] = 300
+    mpl.rcParams["savefig.dpi"] = 300
+    mpl.rcParams["savefig.bbox"] = "tight"
+    mpl.rcParams["savefig.pad_inches"] = 0.1
 
 
 def parse_checkpoint_name(checkpoint_name):
@@ -280,7 +295,8 @@ def create_contour_plot(df, metric, architecture):
 
     # Add colorbar
     cbar = plt.colorbar(contourf, ax=ax)
-    cbar.set_label(METRICS[metric], fontsize=12)
+    cbar.set_label(METRICS[metric], fontsize=14)
+    cbar.ax.tick_params(labelsize=12)
 
     # Add data points
     scatter = ax.scatter(
@@ -358,6 +374,9 @@ def create_contour_plot(df, metric, architecture):
 
 
 def main():
+    # Set up matplotlib for publication quality
+    setup_matplotlib()
+
     # Fetch and process data
     df = fetch_runs()
 

@@ -4,10 +4,10 @@ import re
 import warnings
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 import wandb
 
@@ -20,10 +20,6 @@ api = wandb.Api()
 PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-# Styling
-plt.style.use("seaborn-v0_8-whitegrid")
-sns.set_palette("husl")
 
 # Define metrics to plot
 METRICS = {
@@ -48,6 +44,23 @@ ARCH_MAPPING = {
     "vitb": "ViT-B",
     "vitl": "ViT-L",
 }
+
+
+def setup_matplotlib():
+    """
+    Configure matplotlib for publication-quality figures.
+    Remove font-specific settings to avoid errors.
+    """
+    mpl.rcParams["axes.labelsize"] = 14  # Increased from 12
+    mpl.rcParams["axes.titlesize"] = 16  # Increased from 14
+    mpl.rcParams["xtick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["ytick.labelsize"] = 14  # Increased from 10
+    mpl.rcParams["legend.fontsize"] = 14  # Increased from 10
+    mpl.rcParams["figure.titlesize"] = 16  # Kept the same
+    mpl.rcParams["figure.dpi"] = 300
+    mpl.rcParams["savefig.dpi"] = 300
+    mpl.rcParams["savefig.bbox"] = "tight"
+    mpl.rcParams["savefig.pad_inches"] = 0.1
 
 
 def parse_checkpoint_name(checkpoint_name):
@@ -258,7 +271,7 @@ def create_pareto_plot(df, metric, architecture):
             marker="o",
             label=FREEZE_TYPES[freeze_type],
             linewidth=2.5,
-            markersize=8,
+            markersize=10,
             alpha=0.8,
         )[
             0
@@ -274,7 +287,7 @@ def create_pareto_plot(df, metric, architecture):
                 xy=(row["train_flops"], row[metric_col]),
                 xytext=(10, 5),  # Offset in points
                 textcoords="offset points",
-                fontsize=9,
+                fontsize=12,
                 color=line.get_color(),  # Match line color
                 weight="bold",
                 bbox=dict(
@@ -351,146 +364,10 @@ def create_pareto_plot(df, metric, architecture):
     return fig
 
 
-def create_combined_architecture_plot(df, metric):
-    """Create a plot with all architectures as subplots with efficient frontiers"""
-
-    # Get unique architectures (excluding scratch)
-    architectures = sorted(df[df["arch"] != "scratch"]["arch"].unique())
-
-    if len(architectures) == 0:
-        print(f"No architecture data for {metric}")
-        return None
-
-    # Create subplots
-    fig, axes = plt.subplots(
-        1, len(architectures), figsize=(6 * len(architectures), 6), sharey=True
-    )
-
-    if len(architectures) == 1:
-        axes = [axes]
-
-    for idx, arch in enumerate(architectures):
-        ax = axes[idx]
-
-        # Filter for specific architecture
-        arch_data = df[(df["arch"] == arch) | (df["checkpoint"] == "scratch")].copy()
-
-        metric_col = f"{metric}_{CHECKPOINT}"
-        arch_data = arch_data.dropna(subset=[metric_col, "train_flops"])
-
-        # Collect all points for efficient frontier calculation
-        all_flops = []
-        all_metrics = []
-
-        # Plot each freeze type
-        for freeze_type in ["scratch", "frozen", "scheduled", "full"]:
-            if freeze_type not in FREEZE_TYPES:
-                continue
-
-            data = arch_data[arch_data["freeze_type"] == freeze_type]
-            if len(data) == 0:
-                continue
-
-            # Sort by FLOPs
-            data = data.sort_values("train_flops")
-
-            # Collect points
-            all_flops.extend(data["train_flops"].values)
-            all_metrics.extend(data[metric_col].values)
-
-            # Plot line
-            line = ax.plot(
-                data["train_flops"],
-                data[metric_col],
-                marker="o",
-                label=FREEZE_TYPES[freeze_type]
-                if idx == 0
-                else "",  # Only label first subplot
-                linewidth=2.5,
-                markersize=8,
-                alpha=0.8,
-            )[0]
-
-            # Add text labels
-            for _, row in data.iterrows():
-                train_pct_label = f"{row['train_pct']*100:.0f}%"
-                ax.annotate(
-                    train_pct_label,
-                    xy=(row["train_flops"], row[metric_col]),
-                    xytext=(10, 5),
-                    textcoords="offset points",
-                    fontsize=8,
-                    color=line.get_color(),
-                    weight="bold",
-                )
-
-        # Compute and plot efficient frontier
-        if len(all_flops) > 0:
-            all_flops = np.array(all_flops)
-            all_metrics = np.array(all_metrics)
-
-            frontier_indices = compute_efficient_frontier(all_flops, all_metrics)
-
-            # Sort frontier points
-            frontier_flops = all_flops[frontier_indices]
-            frontier_metrics = all_metrics[frontier_indices]
-            sort_idx = np.argsort(frontier_flops)
-
-            # Plot efficient frontier
-            ax.plot(
-                frontier_flops[sort_idx],
-                frontier_metrics[sort_idx],
-                "k--",
-                linewidth=2.5,
-                label="Efficient Frontier" if idx == 0 else "",
-                alpha=0.7,
-                zorder=10,
-            )
-
-            # Highlight frontier points
-            ax.scatter(
-                frontier_flops,
-                frontier_metrics,
-                s=150,
-                facecolors="none",
-                edgecolors="black",
-                linewidth=2.5,
-                zorder=11,
-                alpha=0.8,
-            )
-
-        # Formatting
-        ax.set_xlabel("Training FLOPs (log scale)", fontsize=12)
-        if idx == 0:
-            ax.set_ylabel(METRICS[metric], fontsize=12)
-
-        # Set log scale for x-axis
-        ax.set_xscale("log")
-
-        arch_name = ARCH_MAPPING.get(arch, arch.upper())
-        ax.set_title(arch_name, fontsize=14, fontweight="bold")
-
-        ax.grid(True, alpha=0.3, which="both")
-        ax.minorticks_on()
-
-    # Add legend to first subplot
-    if len(architectures) > 0:
-        axes[0].legend(loc="best", frameon=True)
-
-    # Overall title
-    fig.suptitle(
-        f"{METRICS[metric]} vs Training FLOPs - All Architectures\n"
-        f"(100% Unlabeled Pretraining Data, {CHECKPOINT.capitalize()} Checkpoint)",
-        fontsize=16,
-        fontweight="bold",
-    )
-
-    plt.tight_layout()
-
-    return fig
-
-
 def main():
+    # Set up matplotlib for publication quality
+    setup_matplotlib()
+
     # Fetch and process data
     df = fetch_runs()
 
@@ -538,13 +415,6 @@ def main():
                 if fig:
                     pdf.savefig(fig)
                     plt.close(fig)
-
-            # Combined plot with all architectures
-            print(f"\nCreating combined architecture plot for {metric}")
-            fig = create_combined_architecture_plot(df_agg, metric)
-            if fig:
-                pdf.savefig(fig)
-                plt.close(fig)
 
     print(f"\nSaved plots to {OUTPUT_DIR / 'pareto_plots_averaged.pdf'}")
 
