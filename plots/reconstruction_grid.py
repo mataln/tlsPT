@@ -2,10 +2,11 @@
 """
 Script to visualize voxelized TLS data with reconstruction from trained PointMAE model
 
-Creates a 3-column visualization:
-1. Left: Original voxel data (gradient colored by height for unlabeled, leaf/wood colors for labeled)
-2. Center: Voxel with masked patches completely removed (showing only visible patches)
-3. Right: Full reconstruction (visible patches + reconstructed masked patches)
+Creates a grid visualization with 4 columns:
+1. Original: Original voxel data (gradient colored by height for unlabeled, leaf/wood colors for labeled)
+2. Subsampled: Subsampled point cloud (all patches before masking)
+3. Masked: Voxel with masked patches removed (showing only visible patches)
+4. Reconstructed: Full reconstruction (visible patches + reconstructed masked patches)
 
 For labeled data:
 - Leaves (label 0) = dark grey
@@ -13,17 +14,41 @@ For labeled data:
 - Reconstructed patches = blue
 
 Uses validation split for better coverage of the data.
-All axes in each row share the same limits for better comparison.
-Prints the number of points in each original voxel.
+All visualizations are shown in a single grid with:
+- Column headers at the top
+- Plot names as row labels on the left
+- Consistent axis limits and color gradients within each row
 
-Uses the model config file to instantiate the model (same approach as train.py),
-then loads the checkpoint weights.
+UPDATES:
+- Only includes plots where the voxel has <= 33000 points
+- Removes tick labels from all axes
+- Shows voxel index on each plot for reproducibility
+- Can specify exact voxel indices to visualize
+- Removes "_2m" suffix from plot names
+- Ensures consistent color gradient within each row
+- Creates a single grid visualization instead of multiple pages
+- Added "Subsampled" column showing patches before masking
+- Optional --publication mode to hide index values for cleaner figures
+
+Usage examples:
+    # Random selection
+    python reconstruction_grid.py
+
+    # Specific voxel indices
+    python reconstruction_grid.py --indices 15 42 108 234
+
+    # Custom parameters
+    python reconstruction_grid.py --num-samples 10 --max-points 50000
+
+    # Publication mode (hide index values)
+    python reconstruction_grid.py --publication
 
 Save as: plots/reconstruction_grid.py
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -39,8 +64,23 @@ from omegaconf import OmegaConf
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from tlspt.datamodules.components.octree_dataset import OctreeDataset
+from tlspt.datamodules.components.merged_dataset import MergedOctreeDataset
 from tlspt.models.utils import get_masked
+
+
+def clean_plot_name(plot_name):
+    """Remove common suffixes from plot names"""
+    # Remove _2m suffix if present
+    if plot_name.endswith("_2m"):
+        plot_name = plot_name[:-3]
+    return plot_name
+
+
+def remove_tick_labels(ax):
+    """Remove tick labels from all axes"""
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
 
 
 def setup_3d_plot(title="Voxel Visualization", figsize=(8, 6)):
@@ -52,6 +92,7 @@ def setup_3d_plot(title="Voxel Visualization", figsize=(8, 6)):
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.view_init(elev=20, azim=45)
+    remove_tick_labels(ax)
     return fig, ax
 
 
@@ -94,6 +135,21 @@ def get_axis_limits(points_list):
     )
 
 
+def get_color_limits(points_list):
+    """Calculate consistent color limits (z-value range) for all points in the list"""
+    all_z_values = []
+    for points in points_list:
+        if torch.is_tensor(points):
+            points = points.cpu().numpy()
+        if len(points) > 0:
+            all_z_values.extend(points[:, 2])
+
+    if not all_z_values:
+        return 0, 1  # Default if no points
+
+    return min(all_z_values), max(all_z_values)
+
+
 def apply_axis_limits(ax, xlim, ylim, zlim):
     """Apply axis limits to a 3D plot"""
     ax.set_xlim(xlim)
@@ -101,7 +157,7 @@ def apply_axis_limits(ax, xlim, ylim, zlim):
     ax.set_zlim(zlim)
 
 
-def plot_original_voxel(ax, points, title=""):
+def plot_original_voxel(ax, points, title="", vmin=None, vmax=None):
     """Plot original voxel with gradient coloring"""
     # Convert to numpy if needed
     if torch.is_tensor(points):
@@ -118,13 +174,52 @@ def plot_original_voxel(ax, points, title=""):
         cmap="viridis",
         s=0.8,
         alpha=0.8,
+        vmin=vmin,
+        vmax=vmax,
     )
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
 
-def plot_visible_patches_only(ax, patches, centers, mask, title=""):
+def plot_subsampled_patches(ax, patches, centers, title="", vmin=None, vmax=None):
+    """Plot all patches (subsampled point cloud before masking)"""
+    # Convert to numpy if needed
+    if torch.is_tensor(patches):
+        patches = patches.cpu().numpy()
+    if torch.is_tensor(centers):
+        centers = centers.cpu().numpy()
+
+    # Plot all patches
+    all_points = []
+    for i in range(patches.shape[0]):
+        patch_points = patches[i] + centers[i]
+        all_points.append(patch_points)
+
+    if all_points:
+        all_points = np.vstack(all_points)
+        z_vals = all_points[:, 2]
+        ax.scatter(
+            all_points[:, 0],
+            all_points[:, 1],
+            all_points[:, 2],
+            c=z_vals,
+            cmap="viridis",
+            s=0.8,
+            alpha=0.8,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+    ax.set_title(title, fontsize=10)
+    ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
+
+
+def plot_visible_patches_only(
+    ax, patches, centers, mask, title="", vmin=None, vmax=None
+):
     """Plot only the visible (unmasked) patches"""
     # Convert to numpy if needed
     if torch.is_tensor(patches):
@@ -155,14 +250,25 @@ def plot_visible_patches_only(ax, patches, centers, mask, title=""):
             cmap="viridis",
             s=0.8,
             alpha=0.8,
+            vmin=vmin,
+            vmax=vmax,
         )
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
 
 def plot_full_reconstruction(
-    ax, patches, centers, mask, reconstructed_patches, masked_centers, title=""
+    ax,
+    patches,
+    centers,
+    mask,
+    reconstructed_patches,
+    masked_centers,
+    title="",
+    vmin=None,
+    vmax=None,
 ):
     """Plot full reconstruction with visible + reconstructed patches"""
     # Convert to numpy if needed
@@ -203,10 +309,13 @@ def plot_full_reconstruction(
             cmap="viridis",
             s=0.8,
             alpha=0.8,
+            vmin=vmin,
+            vmax=vmax,
         )
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
 
 def plot_labeled_original(ax, points, labels, title=""):
@@ -224,6 +333,7 @@ def plot_labeled_original(ax, points, labels, title=""):
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
     # Add legend
     legend_elements = [
@@ -231,6 +341,51 @@ def plot_labeled_original(ax, points, labels, title=""):
         Patch(facecolor="red", label="Wood"),
     ]
     ax.legend(handles=legend_elements, loc="upper right")
+
+
+def plot_labeled_subsampled(ax, patches, centers, points, labels, title=""):
+    """Plot all patches (subsampled) with correct labels"""
+    # Convert to numpy if needed
+    if torch.is_tensor(patches):
+        patches = patches.cpu().numpy()
+    if torch.is_tensor(centers):
+        centers = centers.cpu().numpy()
+    if torch.is_tensor(points):
+        points = points.cpu().numpy()
+    if torch.is_tensor(labels):
+        labels = labels.cpu().numpy()
+
+    # For each patch, find which points belong to it and get their labels
+    all_points = []
+    all_colors = []
+
+    for i in range(patches.shape[0]):
+        patch_points = patches[i] + centers[i]
+
+        # Find closest original points to get their labels
+        patch_center = centers[i]
+        distances = np.linalg.norm(points - patch_center, axis=1)
+        closest_indices = np.argsort(distances)[: patches.shape[1]]
+        patch_labels = labels[closest_indices]
+        patch_colors = np.where(patch_labels == 0, "dimgrey", "red")
+
+        all_points.append(patch_points)
+        all_colors.extend(patch_colors)
+
+    if all_points:
+        all_points = np.vstack(all_points)
+        ax.scatter(
+            all_points[:, 0],
+            all_points[:, 1],
+            all_points[:, 2],
+            c=all_colors,
+            s=0.8,
+            alpha=0.8,
+        )
+
+    ax.set_title(title, fontsize=10)
+    ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
 
 def plot_labeled_visible_only(ax, patches, centers, mask, points, labels, title=""):
@@ -283,6 +438,7 @@ def plot_labeled_visible_only(ax, patches, centers, mask, points, labels, title=
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
 
 def plot_labeled_reconstruction(
@@ -353,6 +509,7 @@ def plot_labeled_reconstruction(
 
     ax.set_title(title, fontsize=10)
     ax.set_box_aspect([1, 1, 1])
+    remove_tick_labels(ax)
 
     # Legend
     legend_elements = [
@@ -368,8 +525,21 @@ def visualize_reconstructions(
     config_path="../configs/pretrain/pretrain_vits_mr07.yaml",
     output_dir="saved_plots",
     num_samples=6,
+    max_points=33000,
+    specific_indices=None,  # List of specific voxel indices to visualize
+    publication_mode=False,  # Whether to hide index values
 ):
-    """Load model and visualize reconstructions"""
+    """Load model and visualize reconstructions
+
+    Args:
+        checkpoint_path: Path to model checkpoint
+        config_path: Path to model config
+        output_dir: Directory to save outputs
+        num_samples: Number of samples to visualize (if not using specific_indices)
+        max_points: Maximum points per voxel
+        specific_indices: List of specific voxel indices to visualize
+        publication_mode: If True, hide index values in labels for cleaner publication figures
+    """
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -406,28 +576,28 @@ def visualize_reconstructions(
         "../data/supertree/plot_octrees_1cm/hjfo-fin/hjfo-fin-splits.csv",
         "../data/supertree/plot_octrees_1cm/hjfo-pol/hjfo-pol-splits.csv",
         "../data/supertree/plot_octrees_1cm/hjfo-spa/hjfo-spa-splits.csv",
+        "../data/supertree/plot_octrees_1cm/widi-aus/widi-aus-splits.csv",
     ]
 
-    # Find available split file
+    # Find available split files
     available_splits = []
     for split_file in split_files:
         if os.path.exists(split_file):
             available_splits.append(split_file)
             print(f"Found split file: {split_file}")
-            break
+            # Don't break - we want ALL split files!
 
     if not available_splits:
         print("No split files found. Please check your data directory.")
         return
 
-    # Create dataset
-    split_file = available_splits[0]
-    print(f"\nLoading dataset from {split_file}")
+    # Create merged dataset from all available split files
+    print(f"\nLoading merged dataset from {len(available_splits)} split files")
 
-    dataset = OctreeDataset(
-        split_file=split_file,
+    dataset = MergedOctreeDataset(
+        split_files=available_splits,
         split="val",  # Use validation split
-        scale=2,
+        scales=2,  # Same scale for all datasets
         feature_names=None,  # No features needed for reconstruction
         normalize=True,
         transform=None,
@@ -440,186 +610,354 @@ def visualize_reconstructions(
         print("Dataset is empty!")
         return
 
-    # Sample some voxels
-    num_to_plot = min(num_samples, len(dataset))
-    indices = np.random.choice(len(dataset), num_to_plot, replace=False)
+    # Sample voxels but filter by point count
+    if specific_indices:
+        # Use specific indices if provided
+        indices = specific_indices
+        print(f"\nUsing specific voxel indices: {indices}")
 
-    # Create a multi-page PDF
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    pdf_path = os.path.join(output_dir, "reconstruction_visualizations.pdf")
-
-    with PdfPages(pdf_path) as pdf:
-        for i, idx in enumerate(indices):
-            # Get plot name first (before try block)
-            hdf5_path, _, _ = dataset.voxels_to_load[idx]
-            plot_name = os.path.basename(os.path.dirname(hdf5_path))
-            print(f"\nProcessing voxel {i+1}/{num_to_plot} from plot {plot_name}")
-
+        # Verify these indices are valid and meet criteria
+        valid_indices = []
+        for idx in indices:
+            if idx >= len(dataset):
+                print(
+                    f"Warning: Index {idx} is out of range (dataset size: {len(dataset)})"
+                )
+                continue
             try:
-                # Load voxel data
                 data = dataset[idx]
                 points = data["points"]
-                lengths = data["lengths"]
-
-                # Print number of points in original voxel
-                print(f"Original voxel has {points.shape[0]} points")
-
-                # Prepare input for model
-                batch = {
-                    "points": points.unsqueeze(0),  # Add batch dimension
-                    "lengths": torch.tensor([lengths]),
-                }
-
-                with torch.no_grad():
-                    # Get patches and centers
-                    patches, centers = model.group(batch["points"], batch["lengths"])
-
-                    # Get mask
-                    mask = model.mask_generator(centers)
-
-                    # Get masked patches for reconstruction
-                    get_masked(patches, mask)
-                    masked_centers = get_masked(centers, mask)
-
-                    # Run encoder
-                    x_vis, _, vis_pos_embeddings = model.forward_encoder(
-                        patches, centers
+                if points.shape[0] > max_points:
+                    print(
+                        f"Warning: Voxel {idx} has {points.shape[0]} points (> {max_points}), skipping"
                     )
-
-                    # Prepare decoder input
-                    masked_pos_embeddings = model.pos_encoder(masked_centers)
-                    B, N, _ = masked_pos_embeddings.shape
-                    mask_tokens = model.mask_token.expand(B, N, -1)
-
-                    x_full = torch.cat((x_vis, mask_tokens), dim=1)
-                    full_pos_embeddings = torch.cat(
-                        (vis_pos_embeddings, masked_pos_embeddings), dim=1
-                    )
-
-                    if model.encoder_to_decoder_proj is not None:
-                        x_full = model.encoder_to_decoder_proj(x_full)
-                        full_pos_embeddings = model.encoder_to_decoder_proj(
-                            full_pos_embeddings
-                        )
-
-                    # Decode to get reconstructed patches
-                    x_hat = model.forward_decoder(x_full, full_pos_embeddings, N)
-
-                # Calculate axis limits for all data in this row
-                # Need to collect all points that will be displayed
-                points_np = points.squeeze(0).cpu().numpy()
-                patches_np = patches.squeeze(0).cpu().numpy()
-                centers_np = centers.squeeze(0).cpu().numpy()
-                mask_np = mask.squeeze(0).cpu().numpy()
-                x_hat_np = x_hat.squeeze(0).cpu().numpy()
-                masked_centers_np = masked_centers.squeeze(0).cpu().numpy()
-
-                # Collect all points for limit calculation
-                all_row_points = [points_np]  # Original points
-
-                # Visible patches
-                vis_patches = patches_np[~mask_np]
-                vis_centers = centers_np[~mask_np]
-                for i in range(vis_patches.shape[0]):
-                    patch_points = vis_patches[i] + vis_centers[i]
-                    all_row_points.append(patch_points)
-
-                # Reconstructed patches
-                for i in range(x_hat_np.shape[0]):
-                    patch_points = x_hat_np[i] + masked_centers_np[i]
-                    all_row_points.append(patch_points)
-
-                # Calculate limits
-                xlim, ylim, zlim = get_axis_limits(all_row_points)
-
-                # Create visualization
-                fig = plt.figure(figsize=(18, 6))
-
-                # Left: Original voxel
-                ax1 = fig.add_subplot(131, projection="3d")
-                num_points = points.shape[0]  # points has shape [N, 3] from dataset
-                plot_original_voxel(
-                    ax1,
-                    points,
-                    title=f"Original Voxel\n{plot_name}\n({num_points:,} points)",
-                )
-                apply_axis_limits(ax1, xlim, ylim, zlim)
-
-                # Center: Visible patches only (masked patches removed)
-                ax2 = fig.add_subplot(132, projection="3d")
-                plot_visible_patches_only(
-                    ax2,
-                    patches.squeeze(0),
-                    centers.squeeze(0),
-                    mask.squeeze(0),
-                    title=f"With {mask.sum().item()} Patches Removed\n{plot_name}",
-                )
-                apply_axis_limits(ax2, xlim, ylim, zlim)
-
-                # Right: Full reconstruction
-                ax3 = fig.add_subplot(133, projection="3d")
-                plot_full_reconstruction(
-                    ax3,
-                    patches.squeeze(0),
-                    centers.squeeze(0),
-                    mask.squeeze(0),
-                    x_hat.squeeze(0),
-                    masked_centers.squeeze(0),
-                    title=f"Full Reconstruction\n{plot_name}",
-                )
-                apply_axis_limits(ax3, xlim, ylim, zlim)
-
-                # Save to PDF
-                pdf.savefig(fig, bbox_inches="tight")
-                plt.close(fig)
-
-                # Also save individual PNG for the first few
-                if i < 3:
-                    fig = plt.figure(figsize=(18, 6))
-                    ax1 = fig.add_subplot(131, projection="3d")
-                    plot_original_voxel(
-                        ax1, points.squeeze(0), title=f"Original\n{plot_name}"
-                    )
-                    apply_axis_limits(ax1, xlim, ylim, zlim)
-
-                    ax2 = fig.add_subplot(132, projection="3d")
-                    plot_visible_patches_only(
-                        ax2,
-                        patches.squeeze(0),
-                        centers.squeeze(0),
-                        mask.squeeze(0),
-                        title=f"Masked ({mask.sum().item()} removed)\n{plot_name}",
-                    )
-                    apply_axis_limits(ax2, xlim, ylim, zlim)
-
-                    ax3 = fig.add_subplot(133, projection="3d")
-                    plot_full_reconstruction(
-                        ax3,
-                        patches.squeeze(0),
-                        centers.squeeze(0),
-                        mask.squeeze(0),
-                        x_hat.squeeze(0),
-                        masked_centers.squeeze(0),
-                        title=f"Reconstruction\n{plot_name}",
-                    )
-                    apply_axis_limits(ax3, xlim, ylim, zlim)
-
-                    png_path = os.path.join(
-                        output_dir, f"reconstruction_{plot_name}_{i}.png"
-                    )
-                    plt.savefig(png_path, dpi=300, bbox_inches="tight")
-                    plt.close(fig)
-                    print(f"Saved individual plot: {png_path}")
-
+                    continue
+                valid_indices.append(idx)
             except Exception as e:
-                print(f"Error processing voxel from {plot_name}: {e}")
-                import traceback
-
-                traceback.print_exc()
+                print(f"Warning: Could not load voxel {idx}: {e}")
                 continue
 
-    print(f"\nVisualization saved to: {pdf_path}")
+        indices = valid_indices
+        if len(indices) == 0:
+            print("No valid indices found!")
+            return
+    else:
+        # Filter by point count and randomly sample
+        valid_indices = []
+        for idx in range(len(dataset)):
+            try:
+                data = dataset[idx]
+                points = data["points"]
+                if points.shape[0] <= max_points:
+                    valid_indices.append(idx)
+            except:
+                continue
+
+        print(f"Found {len(valid_indices)} voxels with <= {max_points} points")
+
+        if len(valid_indices) == 0:
+            print(f"No voxels found with <= {max_points} points!")
+            return
+
+        # Sample from valid indices
+        num_to_plot = min(num_samples, len(valid_indices))
+        indices = np.random.choice(valid_indices, num_to_plot, replace=False)
+        print(f"Randomly selected indices: {sorted(indices.tolist())}")
+
+    # First, process all voxels to collect the data
+    all_voxel_data = []
+
+    for i, idx in enumerate(indices):
+        # Get plot name first
+        dataset_idx, local_idx = dataset.idxs[idx]
+        hdf5_path, _, _ = dataset.datasets[dataset_idx].voxels_to_load[local_idx]
+        plot_name = os.path.basename(os.path.dirname(hdf5_path))
+        plot_name = clean_plot_name(plot_name)  # Clean the plot name
+        print(
+            f"\nProcessing voxel {i+1}/{len(indices)} - Index: {idx} from plot {plot_name}"
+        )
+
+        try:
+            # Load voxel data
+            data = dataset[idx]
+            points = data["points"]
+            lengths = data["lengths"]
+
+            # Print number of points in original voxel
+            print(f"Original voxel has {points.shape[0]} points")
+
+            # Double-check point count
+            if points.shape[0] > max_points:
+                print(f"Skipping voxel with {points.shape[0]} points (> {max_points})")
+                continue
+
+            # Prepare input for model
+            batch = {
+                "points": points.unsqueeze(0),  # Add batch dimension
+                "lengths": torch.tensor([lengths]),
+            }
+
+            with torch.no_grad():
+                # Get patches and centers
+                patches, centers = model.group(batch["points"], batch["lengths"])
+
+                # Get mask
+                mask = model.mask_generator(centers)
+
+                # Get masked patches for reconstruction
+                get_masked(patches, mask)
+                masked_centers = get_masked(centers, mask)
+
+                # Run encoder
+                x_vis, _, vis_pos_embeddings = model.forward_encoder(patches, centers)
+
+                # Prepare decoder input
+                masked_pos_embeddings = model.pos_encoder(masked_centers)
+                B, N, _ = masked_pos_embeddings.shape
+                mask_tokens = model.mask_token.expand(B, N, -1)
+
+                x_full = torch.cat((x_vis, mask_tokens), dim=1)
+                full_pos_embeddings = torch.cat(
+                    (vis_pos_embeddings, masked_pos_embeddings), dim=1
+                )
+
+                if model.encoder_to_decoder_proj is not None:
+                    x_full = model.encoder_to_decoder_proj(x_full)
+                    full_pos_embeddings = model.encoder_to_decoder_proj(
+                        full_pos_embeddings
+                    )
+
+                # Decode to get reconstructed patches
+                x_hat = model.forward_decoder(x_full, full_pos_embeddings, N)
+
+            # Store all the data for this voxel
+            voxel_data = {
+                "plot_name": plot_name,
+                "idx": idx,
+                "points": points.squeeze(0).cpu().numpy(),
+                "patches": patches.squeeze(0).cpu().numpy(),
+                "centers": centers.squeeze(0).cpu().numpy(),
+                "mask": mask.squeeze(0).cpu().numpy(),
+                "x_hat": x_hat.squeeze(0).cpu().numpy(),
+                "masked_centers": masked_centers.squeeze(0).cpu().numpy(),
+                "num_points": points.shape[0],
+                "num_masked": mask.sum().item(),
+            }
+
+            all_voxel_data.append(voxel_data)
+
+        except Exception as e:
+            print(f"Error processing voxel from {plot_name}: {e}")
+            import traceback
+
+            traceback.print_exc()
+            continue
+
+    # Now create the grid visualization
+    n_rows = len(all_voxel_data)
+    n_cols = 4  # Original, Subsampled, Masked, Reconstructed
+
+    # Create figure with appropriate size
+    fig_width = 4.5 * n_cols  # Slightly wider for better spacing
+    fig_height = 4 * n_rows + 0.5  # Less extra space needed for titles
+    fig = plt.figure(figsize=(fig_width, fig_height))
+
+    # Add column titles - properly aligned with subplot centers
+    col_titles = ["Original", "Subsampled", "Masked", "Reconstructed"]
+    left_margin = 0.15
+    right_margin = 0.98
+    plot_width = right_margin - left_margin
+    for j, title in enumerate(col_titles):
+        # Calculate position to center over each column accounting for margins
+        col_center = left_margin + (j + 0.5) * plot_width / n_cols
+        fig.text(
+            col_center,
+            0.98,
+            title,
+            ha="center",
+            va="top",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+    # Process each voxel
+    for i, voxel_data in enumerate(all_voxel_data):
+        # Extract data
+        plot_name = voxel_data["plot_name"]
+        idx = voxel_data["idx"]
+        points = voxel_data["points"]
+        patches = voxel_data["patches"]
+        centers = voxel_data["centers"]
+        mask = voxel_data["mask"]
+        x_hat = voxel_data["x_hat"]
+        masked_centers = voxel_data["masked_centers"]
+        voxel_data["num_points"]
+        voxel_data["num_masked"]
+
+        # Calculate axis limits and color limits for this row
+        all_row_points = [points]  # Original points
+
+        # All patches (subsampled)
+        for j in range(patches.shape[0]):
+            patch_points = patches[j] + centers[j]
+            all_row_points.append(patch_points)
+
+        # Reconstructed patches
+        for j in range(x_hat.shape[0]):
+            patch_points = x_hat[j] + masked_centers[j]
+            all_row_points.append(patch_points)
+
+        # Calculate limits
+        xlim, ylim, zlim = get_axis_limits(all_row_points)
+        vmin, vmax = get_color_limits(all_row_points)
+
+        # Get the leftmost axis of this row
+        ax1 = fig.add_subplot(n_rows, n_cols, i * n_cols + 1, projection="3d")
+
+        # Add row label using set_ylabel
+        if publication_mode:
+            label_text = plot_name
+        else:
+            label_text = f"{plot_name} (idx: {idx})"
+
+        ax1.set_ylabel(label_text, fontsize=10, fontweight="bold", rotation=90)
+        ax1.yaxis.set_label_coords(-0.3, 0.5)
+
+        # Column 1: Original
+        plot_original_voxel(ax1, points, title="", vmin=vmin, vmax=vmax)
+        apply_axis_limits(ax1, xlim, ylim, zlim)
+
+        # Column 2: Subsampled (all patches)
+        ax2 = fig.add_subplot(n_rows, n_cols, i * n_cols + 2, projection="3d")
+        plot_subsampled_patches(ax2, patches, centers, title="", vmin=vmin, vmax=vmax)
+        apply_axis_limits(ax2, xlim, ylim, zlim)
+
+        # Column 3: Masked (visible patches only)
+        ax3 = fig.add_subplot(n_rows, n_cols, i * n_cols + 3, projection="3d")
+        plot_visible_patches_only(
+            ax3, patches, centers, mask, title="", vmin=vmin, vmax=vmax
+        )
+        apply_axis_limits(ax3, xlim, ylim, zlim)
+
+        # Column 4: Reconstructed
+        ax4 = fig.add_subplot(n_rows, n_cols, i * n_cols + 4, projection="3d")
+        plot_full_reconstruction(
+            ax4,
+            patches,
+            centers,
+            mask,
+            x_hat,
+            masked_centers,
+            title="",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        apply_axis_limits(ax4, xlim, ylim, zlim)
+
+    # Adjust layout - more left margin for row labels
+    plt.subplots_adjust(
+        left=0.15, right=0.98, top=0.94, bottom=0.02, wspace=0.05, hspace=0.1
+    )
+
+    # Save the figure
+    output_path = os.path.join(output_dir, "reconstruction_grid.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"\nVisualization saved to: {output_path}")
+
+    # Also save as PDF
+    pdf_path = os.path.join(output_dir, "reconstruction_grid.pdf")
+    fig = plt.figure(figsize=(fig_width, fig_height))
+
+    # Recreate the same visualization for PDF
+    # Add column titles - properly aligned
+    left_margin = 0.15
+    right_margin = 0.98
+    plot_width = right_margin - left_margin
+    for j, title in enumerate(col_titles):
+        col_center = left_margin + (j + 0.5) * plot_width / n_cols
+        fig.text(
+            col_center,
+            0.98,
+            title,
+            ha="center",
+            va="top",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+    # Process each voxel again for PDF
+    for i, voxel_data in enumerate(all_voxel_data):
+        # Extract data
+        plot_name = voxel_data["plot_name"]
+        idx = voxel_data["idx"]
+        points = voxel_data["points"]
+        patches = voxel_data["patches"]
+        centers = voxel_data["centers"]
+        mask = voxel_data["mask"]
+        x_hat = voxel_data["x_hat"]
+        masked_centers = voxel_data["masked_centers"]
+        voxel_data["num_points"]
+        voxel_data["num_masked"]
+
+        # Recalculate limits (same as before)
+        all_row_points = [points]
+        for j in range(patches.shape[0]):
+            patch_points = patches[j] + centers[j]
+            all_row_points.append(patch_points)
+        for j in range(x_hat.shape[0]):
+            patch_points = x_hat[j] + masked_centers[j]
+            all_row_points.append(patch_points)
+
+        xlim, ylim, zlim = get_axis_limits(all_row_points)
+        vmin, vmax = get_color_limits(all_row_points)
+
+        # Get the leftmost axis of this row
+        ax1 = fig.add_subplot(n_rows, n_cols, i * n_cols + 1, projection="3d")
+
+        # Add row label using set_ylabel
+        if publication_mode:
+            label_text = plot_name
+        else:
+            label_text = f"{plot_name} (idx: {idx})"
+
+        ax1.set_ylabel(label_text, fontsize=10, fontweight="bold", rotation=90)
+        ax1.yaxis.set_label_coords(-0.3, 0.5)
+
+        # Create all 4 subplots for this row
+        plot_original_voxel(ax1, points, title="", vmin=vmin, vmax=vmax)
+        apply_axis_limits(ax1, xlim, ylim, zlim)
+
+        ax2 = fig.add_subplot(n_rows, n_cols, i * n_cols + 2, projection="3d")
+        plot_subsampled_patches(ax2, patches, centers, title="", vmin=vmin, vmax=vmax)
+        apply_axis_limits(ax2, xlim, ylim, zlim)
+
+        ax3 = fig.add_subplot(n_rows, n_cols, i * n_cols + 3, projection="3d")
+        plot_visible_patches_only(
+            ax3, patches, centers, mask, title="", vmin=vmin, vmax=vmax
+        )
+        apply_axis_limits(ax3, xlim, ylim, zlim)
+
+        ax4 = fig.add_subplot(n_rows, n_cols, i * n_cols + 4, projection="3d")
+        plot_full_reconstruction(
+            ax4,
+            patches,
+            centers,
+            mask,
+            x_hat,
+            masked_centers,
+            title="",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        apply_axis_limits(ax4, xlim, ylim, zlim)
+
+    plt.subplots_adjust(
+        left=0.15, right=0.98, top=0.94, bottom=0.02, wspace=0.05, hspace=0.1
+    )
+    plt.savefig(pdf_path, bbox_inches="tight")
+    plt.close()
+    print(f"PDF saved to: {pdf_path}")
 
 
 def visualize_labeled_reconstructions(
@@ -627,8 +965,21 @@ def visualize_labeled_reconstructions(
     config_path="../configs/pretrain/pretrain_vits_mr07.yaml",
     output_dir="saved_plots",
     num_samples=6,
+    max_points=33000,
+    specific_indices=None,  # List of specific voxel indices to visualize
+    publication_mode=False,  # Whether to hide index values
 ):
-    """Visualize reconstructions with leaf/wood labels"""
+    """Visualize reconstructions with leaf/wood labels
+
+    Args:
+        checkpoint_path: Path to model checkpoint
+        config_path: Path to model config
+        output_dir: Directory to save outputs
+        num_samples: Number of samples to visualize (if not using specific_indices)
+        max_points: Maximum points per voxel
+        specific_indices: List of specific voxel indices to visualize
+        publication_mode: If True, hide index values in labels for cleaner publication figures
+    """
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -664,23 +1015,24 @@ def visualize_labeled_reconstructions(
         "../data/tlspt_labelled/plot_octrees/hjfo-spal/hjfo-spal-splits.csv",
     ]
 
-    # Find available split file
+    # Find available split files
     available_splits = []
     for split_file in labeled_split_files:
         if os.path.exists(split_file):
             available_splits.append(split_file)
             print(f"Found labeled split file: {split_file}")
-            # break
+            # Don't break - we want ALL split files!
 
     if available_splits:
-        # Use labeled dataset
-        split_file = available_splits[0]
-        print(f"\nLoading labeled dataset from {split_file}")
+        # Use merged labeled dataset
+        print(
+            f"\nLoading merged labeled dataset from {len(available_splits)} split files"
+        )
 
-        dataset = OctreeDataset(
-            split_file=split_file,
+        dataset = MergedOctreeDataset(
+            split_files=available_splits,
             split="val",  # Use validation split
-            scale=2,
+            scales=2,  # Same scale for all datasets
             feature_names=["scalar_truth"],  # Load labels
             normalize=False,  # Don't normalize for visualization
             transform=None,
@@ -689,152 +1041,372 @@ def visualize_labeled_reconstructions(
 
         print(f"Dataset size: {len(dataset)} voxels")
 
-        # Visualize with labels
-        num_to_plot = min(num_samples, len(dataset))
-        indices = np.random.choice(len(dataset), num_to_plot, replace=False)
+        # Filter by point count
+        if specific_indices:
+            # Use specific indices if provided
+            indices = specific_indices
+            print(f"\nUsing specific labeled voxel indices: {indices}")
 
-        pdf_path = os.path.join(output_dir, "labeled_reconstruction_visualizations.pdf")
-
-        from matplotlib.backends.backend_pdf import PdfPages
-
-        with PdfPages(pdf_path) as pdf:
-            for i, idx in enumerate(indices):
-                # Get plot name first (before try block)
-                hdf5_path, _, _ = dataset.voxels_to_load[idx]
-                plot_name = os.path.basename(os.path.dirname(hdf5_path))
-                print(
-                    f"\nProcessing labeled voxel {i+1}/{num_to_plot} from plot {plot_name}"
-                )
-
+            # Verify these indices are valid and meet criteria
+            valid_indices = []
+            for idx in indices:
+                if idx >= len(dataset):
+                    print(
+                        f"Warning: Index {idx} is out of range (dataset size: {len(dataset)})"
+                    )
+                    continue
                 try:
-                    # Load voxel data with labels
                     data = dataset[idx]
                     points = data["points"]
-                    labels = data["features"].squeeze(-1)  # Remove feature dimension
-                    lengths = data["lengths"]
-
-                    # Print number of points in original voxel
-                    print(f"Original voxel has {points.shape[0]} points")
-
-                    # Prepare input for model
-                    batch = {
-                        "points": points.unsqueeze(0),
-                        "lengths": torch.tensor([lengths]),
-                    }
-
-                    with torch.no_grad():
-                        # Get patches and centers
-                        patches, centers = model.group(
-                            batch["points"], batch["lengths"]
+                    if points.shape[0] > max_points:
+                        print(
+                            f"Warning: Voxel {idx} has {points.shape[0]} points (> {max_points}), skipping"
                         )
-
-                        # Get mask
-                        mask = model.mask_generator(centers)
-
-                        # Run forward pass components
-                        get_masked(patches, mask)
-                        masked_centers = get_masked(centers, mask)
-
-                        x_vis, _, vis_pos_embeddings = model.forward_encoder(
-                            patches, centers
-                        )
-
-                        masked_pos_embeddings = model.pos_encoder(masked_centers)
-                        B, N, _ = masked_pos_embeddings.shape
-                        mask_tokens = model.mask_token.expand(B, N, -1)
-
-                        x_full = torch.cat((x_vis, mask_tokens), dim=1)
-                        full_pos_embeddings = torch.cat(
-                            (vis_pos_embeddings, masked_pos_embeddings), dim=1
-                        )
-
-                        if model.encoder_to_decoder_proj is not None:
-                            x_full = model.encoder_to_decoder_proj(x_full)
-                            full_pos_embeddings = model.encoder_to_decoder_proj(
-                                full_pos_embeddings
-                            )
-
-                        x_hat = model.forward_decoder(x_full, full_pos_embeddings, N)
-
-                    # Calculate axis limits for all data in this row
-                    points_np = points.cpu().numpy()
-                    patches_np = patches.squeeze(0).cpu().numpy()
-                    centers_np = centers.squeeze(0).cpu().numpy()
-                    mask_np = mask.squeeze(0).cpu().numpy()
-                    x_hat_np = x_hat.squeeze(0).cpu().numpy()
-                    masked_centers_np = masked_centers.squeeze(0).cpu().numpy()
-
-                    # Collect all points for limit calculation
-                    all_row_points = [points_np]  # Original points
-
-                    # Visible patches
-                    vis_patches = patches_np[~mask_np]
-                    vis_centers = centers_np[~mask_np]
-                    for i in range(vis_patches.shape[0]):
-                        patch_points = vis_patches[i] + vis_centers[i]
-                        all_row_points.append(patch_points)
-
-                    # Reconstructed patches
-                    for i in range(x_hat_np.shape[0]):
-                        patch_points = x_hat_np[i] + masked_centers_np[i]
-                        all_row_points.append(patch_points)
-
-                    # Calculate limits
-                    xlim, ylim, zlim = get_axis_limits(all_row_points)
-
-                    # Create figure with 3 columns
-                    fig = plt.figure(figsize=(18, 6))
-
-                    # Plot 1: Original labeled points
-                    ax1 = fig.add_subplot(131, projection="3d")
-                    plot_labeled_original(
-                        ax1,
-                        points,
-                        labels,
-                        title=f"Original Labeled Points\n{plot_name}",
-                    )
-                    apply_axis_limits(ax1, xlim, ylim, zlim)
-
-                    # Plot 2: Visible patches only
-                    ax2 = fig.add_subplot(132, projection="3d")
-                    plot_labeled_visible_only(
-                        ax2,
-                        patches.squeeze(0),
-                        centers.squeeze(0),
-                        mask.squeeze(0),
-                        points,
-                        labels,
-                        title=f"With {mask.sum().item()} Patches Removed\n{plot_name}",
-                    )
-                    apply_axis_limits(ax2, xlim, ylim, zlim)
-
-                    # Plot 3: Full reconstruction
-                    ax3 = fig.add_subplot(133, projection="3d")
-                    plot_labeled_reconstruction(
-                        ax3,
-                        patches.squeeze(0),
-                        centers.squeeze(0),
-                        mask.squeeze(0),
-                        x_hat.squeeze(0),
-                        masked_centers.squeeze(0),
-                        points,
-                        labels,
-                        title=f"Full Reconstruction\n{plot_name}",
-                    )
-                    apply_axis_limits(ax3, xlim, ylim, zlim)
-
-                    # Save to PDF
-                    pdf.savefig(fig, bbox_inches="tight")
-                    plt.close(fig)
-
+                        continue
+                    valid_indices.append(idx)
                 except Exception as e:
-                    print(f"Error processing labeled voxel from {plot_name}: {e}")
-                    import traceback
-
-                    traceback.print_exc()
+                    print(f"Warning: Could not load voxel {idx}: {e}")
                     continue
 
-        print(f"\nLabeled visualization saved to: {pdf_path}")
+            indices = valid_indices
+            if len(indices) == 0:
+                print("No valid indices found!")
+                return
+        else:
+            # Filter and randomly sample
+            valid_indices = []
+            for idx in range(len(dataset)):
+                try:
+                    data = dataset[idx]
+                    points = data["points"]
+                    if points.shape[0] <= max_points:
+                        valid_indices.append(idx)
+                except:
+                    continue
+
+            print(
+                f"Found {len(valid_indices)} labeled voxels with <= {max_points} points"
+            )
+
+            if len(valid_indices) == 0:
+                print(f"No labeled voxels found with <= {max_points} points!")
+                return
+
+            # Visualize with labels
+            num_to_plot = min(num_samples, len(valid_indices))
+            indices = np.random.choice(valid_indices, num_to_plot, replace=False)
+            print(f"Randomly selected labeled indices: {sorted(indices.tolist())}")
+
+        # Process all voxels to collect data
+        all_voxel_data = []
+
+        for i, idx in enumerate(indices):
+            # Get plot name first
+            dataset_idx, local_idx = dataset.idxs[idx]
+            hdf5_path, _, _ = dataset.datasets[dataset_idx].voxels_to_load[local_idx]
+            plot_name = os.path.basename(os.path.dirname(hdf5_path))
+            plot_name = clean_plot_name(plot_name)  # Clean the plot name
+            print(
+                f"\nProcessing labeled voxel {i+1}/{len(indices)} - Index: {idx} from plot {plot_name}"
+            )
+
+            try:
+                # Load voxel data with labels
+                data = dataset[idx]
+                points = data["points"]
+                labels = data["features"].squeeze(-1)  # Remove feature dimension
+                lengths = data["lengths"]
+
+                # Print number of points in original voxel
+                print(f"Original voxel has {points.shape[0]} points")
+
+                # Double-check point count
+                if points.shape[0] > max_points:
+                    print(
+                        f"Skipping voxel with {points.shape[0]} points (> {max_points})"
+                    )
+                    continue
+
+                # Prepare input for model
+                batch = {
+                    "points": points.unsqueeze(0),
+                    "lengths": torch.tensor([lengths]),
+                }
+
+                with torch.no_grad():
+                    # Get patches and centers
+                    patches, centers = model.group(batch["points"], batch["lengths"])
+
+                    # Get mask
+                    mask = model.mask_generator(centers)
+
+                    # Run forward pass components
+                    get_masked(patches, mask)
+                    masked_centers = get_masked(centers, mask)
+
+                    x_vis, _, vis_pos_embeddings = model.forward_encoder(
+                        patches, centers
+                    )
+
+                    masked_pos_embeddings = model.pos_encoder(masked_centers)
+                    B, N, _ = masked_pos_embeddings.shape
+                    mask_tokens = model.mask_token.expand(B, N, -1)
+
+                    x_full = torch.cat((x_vis, mask_tokens), dim=1)
+                    full_pos_embeddings = torch.cat(
+                        (vis_pos_embeddings, masked_pos_embeddings), dim=1
+                    )
+
+                    if model.encoder_to_decoder_proj is not None:
+                        x_full = model.encoder_to_decoder_proj(x_full)
+                        full_pos_embeddings = model.encoder_to_decoder_proj(
+                            full_pos_embeddings
+                        )
+
+                    x_hat = model.forward_decoder(x_full, full_pos_embeddings, N)
+
+                # Store all the data for this voxel
+                voxel_data = {
+                    "plot_name": plot_name,
+                    "idx": idx,
+                    "points": points.cpu().numpy(),
+                    "labels": labels.cpu().numpy(),
+                    "patches": patches.squeeze(0).cpu().numpy(),
+                    "centers": centers.squeeze(0).cpu().numpy(),
+                    "mask": mask.squeeze(0).cpu().numpy(),
+                    "x_hat": x_hat.squeeze(0).cpu().numpy(),
+                    "masked_centers": masked_centers.squeeze(0).cpu().numpy(),
+                    "num_points": points.shape[0],
+                    "num_masked": mask.sum().item(),
+                }
+
+                all_voxel_data.append(voxel_data)
+
+            except Exception as e:
+                print(f"Error processing labeled voxel from {plot_name}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        # Create grid visualization for labeled data
+        n_rows = len(all_voxel_data)
+        n_cols = 4  # Original, Subsampled, Masked, Reconstructed
+
+        # Create figure with appropriate size
+        fig_width = 4.5 * n_cols  # Slightly wider for better spacing
+        fig_height = 4 * n_rows + 0.5  # Less extra space needed for titles
+        fig = plt.figure(figsize=(fig_width, fig_height))
+
+        # Add column titles - properly aligned
+        col_titles = ["Original", "Subsampled", "Masked", "Reconstructed"]
+        left_margin = 0.15
+        right_margin = 0.98
+        plot_width = right_margin - left_margin
+        for j, title in enumerate(col_titles):
+            col_center = left_margin + (j + 0.5) * plot_width / n_cols
+            fig.text(
+                col_center,
+                0.98,
+                title,
+                ha="center",
+                va="top",
+                fontsize=14,
+                fontweight="bold",
+            )
+
+        # Process each voxel
+        for i, voxel_data in enumerate(all_voxel_data):
+            # Extract data
+            plot_name = voxel_data["plot_name"]
+            idx = voxel_data["idx"]
+            points = voxel_data["points"]
+            labels = voxel_data["labels"]
+            patches = voxel_data["patches"]
+            centers = voxel_data["centers"]
+            mask = voxel_data["mask"]
+            x_hat = voxel_data["x_hat"]
+            masked_centers = voxel_data["masked_centers"]
+            voxel_data["num_points"]
+            voxel_data["num_masked"]
+
+            # Calculate axis limits for this row
+            all_row_points = [points]  # Original points
+
+            # All patches
+            for j in range(patches.shape[0]):
+                patch_points = patches[j] + centers[j]
+                all_row_points.append(patch_points)
+
+            # Reconstructed patches
+            for j in range(x_hat.shape[0]):
+                patch_points = x_hat[j] + masked_centers[j]
+                all_row_points.append(patch_points)
+
+            # Calculate limits
+            xlim, ylim, zlim = get_axis_limits(all_row_points)
+
+            # Get the leftmost axis of this row
+            ax1 = fig.add_subplot(n_rows, n_cols, i * n_cols + 1, projection="3d")
+
+            # Add row label using set_ylabel
+            if publication_mode:
+                label_text = plot_name
+            else:
+                label_text = f"{plot_name} (idx: {idx})"
+
+            ax1.set_ylabel(label_text, fontsize=10, fontweight="bold", rotation=90)
+            ax1.yaxis.set_label_coords(-0.3, 0.5)
+
+            # Column 1: Original labeled
+            plot_labeled_original(ax1, points, labels, title="")
+            apply_axis_limits(ax1, xlim, ylim, zlim)
+
+            # Column 2: Subsampled with labels
+            ax2 = fig.add_subplot(n_rows, n_cols, i * n_cols + 2, projection="3d")
+            plot_labeled_subsampled(ax2, patches, centers, points, labels, title="")
+            apply_axis_limits(ax2, xlim, ylim, zlim)
+
+            # Column 3: Masked (visible patches only)
+            ax3 = fig.add_subplot(n_rows, n_cols, i * n_cols + 3, projection="3d")
+            plot_labeled_visible_only(
+                ax3, patches, centers, mask, points, labels, title=""
+            )
+            apply_axis_limits(ax3, xlim, ylim, zlim)
+
+            # Column 4: Reconstructed
+            ax4 = fig.add_subplot(n_rows, n_cols, i * n_cols + 4, projection="3d")
+            plot_labeled_reconstruction(
+                ax4,
+                patches,
+                centers,
+                mask,
+                x_hat,
+                masked_centers,
+                points,
+                labels,
+                title="",
+            )
+            apply_axis_limits(ax4, xlim, ylim, zlim)
+
+            # Add legend to first row only
+            if i == 0:
+                legend_elements = [
+                    Patch(facecolor="dimgrey", label="Leaf"),
+                    Patch(facecolor="red", label="Wood"),
+                    Patch(facecolor="blue", label="Reconstructed"),
+                ]
+                ax4.legend(handles=legend_elements, loc="upper right", fontsize=8)
+
+        # Adjust layout - more left margin for row labels
+        plt.subplots_adjust(
+            left=0.15, right=0.98, top=0.94, bottom=0.02, wspace=0.05, hspace=0.1
+        )
+
+        # Save the figure
+        output_path = os.path.join(output_dir, "labeled_reconstruction_grid.png")
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+        print(f"\nLabeled visualization saved to: {output_path}")
+
+        # Also save as PDF
+        pdf_path = os.path.join(output_dir, "labeled_reconstruction_grid.pdf")
+        fig = plt.figure(figsize=(fig_width, fig_height))
+
+        # Recreate for PDF (similar to above)
+        left_margin = 0.15
+        right_margin = 0.98
+        plot_width = right_margin - left_margin
+        for j, title in enumerate(col_titles):
+            col_center = left_margin + (j + 0.5) * plot_width / n_cols
+            fig.text(
+                col_center,
+                0.98,
+                title,
+                ha="center",
+                va="top",
+                fontsize=14,
+                fontweight="bold",
+            )
+
+        for i, voxel_data in enumerate(all_voxel_data):
+            plot_name = voxel_data["plot_name"]
+            idx = voxel_data["idx"]
+            points = voxel_data["points"]
+            labels = voxel_data["labels"]
+            patches = voxel_data["patches"]
+            centers = voxel_data["centers"]
+            mask = voxel_data["mask"]
+            x_hat = voxel_data["x_hat"]
+            masked_centers = voxel_data["masked_centers"]
+            voxel_data["num_points"]
+            voxel_data["num_masked"]
+
+            # Recalculate limits
+            all_row_points = [points]
+            for j in range(patches.shape[0]):
+                patch_points = patches[j] + centers[j]
+                all_row_points.append(patch_points)
+            for j in range(x_hat.shape[0]):
+                patch_points = x_hat[j] + masked_centers[j]
+                all_row_points.append(patch_points)
+
+            xlim, ylim, zlim = get_axis_limits(all_row_points)
+
+            # Get the leftmost axis of this row
+            ax1 = fig.add_subplot(n_rows, n_cols, i * n_cols + 1, projection="3d")
+
+            # Add row label using set_ylabel
+            if publication_mode:
+                label_text = plot_name
+            else:
+                label_text = f"{plot_name} (idx: {idx})"
+
+            ax1.set_ylabel(label_text, fontsize=10, fontweight="bold", rotation=90)
+            ax1.yaxis.set_label_coords(-0.3, 0.5)
+
+            # Create all 4 subplots
+            plot_labeled_original(ax1, points, labels, title="")
+            apply_axis_limits(ax1, xlim, ylim, zlim)
+
+            ax2 = fig.add_subplot(n_rows, n_cols, i * n_cols + 2, projection="3d")
+            plot_labeled_subsampled(ax2, patches, centers, points, labels, title="")
+            apply_axis_limits(ax2, xlim, ylim, zlim)
+
+            ax3 = fig.add_subplot(n_rows, n_cols, i * n_cols + 3, projection="3d")
+            plot_labeled_visible_only(
+                ax3, patches, centers, mask, points, labels, title=""
+            )
+            apply_axis_limits(ax3, xlim, ylim, zlim)
+
+            ax4 = fig.add_subplot(n_rows, n_cols, i * n_cols + 4, projection="3d")
+            plot_labeled_reconstruction(
+                ax4,
+                patches,
+                centers,
+                mask,
+                x_hat,
+                masked_centers,
+                points,
+                labels,
+                title="",
+            )
+            apply_axis_limits(ax4, xlim, ylim, zlim)
+
+            if i == 0:
+                legend_elements = [
+                    Patch(facecolor="dimgrey", label="Leaf"),
+                    Patch(facecolor="red", label="Wood"),
+                    Patch(facecolor="blue", label="Reconstructed"),
+                ]
+                ax4.legend(handles=legend_elements, loc="upper right", fontsize=8)
+
+        plt.subplots_adjust(
+            left=0.15, right=0.98, top=0.94, bottom=0.02, wspace=0.05, hspace=0.1
+        )
+        plt.savefig(pdf_path, bbox_inches="tight")
+        plt.close()
+        print(f"PDF saved to: {pdf_path}")
     else:
         print(
             "No labeled dataset found, using unlabeled reconstruction visualization only"
@@ -843,6 +1415,36 @@ def visualize_labeled_reconstructions(
 
 if __name__ == "__main__":
     print("Starting reconstruction visualization...")
+
+    # Optional: Check for command line arguments
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Visualize TLS voxel reconstructions")
+    parser.add_argument(
+        "--indices",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Specific voxel indices to visualize (e.g., --indices 15 42 108)",
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=6,
+        help="Number of samples to visualize if not using --indices (default: 6)",
+    )
+    parser.add_argument(
+        "--max-points",
+        type=int,
+        default=33000,
+        help="Maximum points per voxel (default: 33000)",
+    )
+    parser.add_argument(
+        "--publication",
+        action="store_true",
+        help="Publication mode - hide index values in labels",
+    )
+    args = parser.parse_args()
 
     # Config path - adjust if needed
     config_path = "../configs/pretrain/pretrain_vits_mr07.yaml"
@@ -868,14 +1470,24 @@ if __name__ == "__main__":
                 f"Warning: Config file not found at {config_path} or alternative paths"
             )
 
-    # Run unlabeled visualization
+    # Run unlabeled visualization with max_points filter
     visualize_reconstructions(
-        config_path=config_path, output_dir="saved_plots", num_samples=6
+        config_path=config_path,
+        output_dir="saved_plots",
+        num_samples=args.num_samples,
+        max_points=args.max_points,
+        specific_indices=args.indices,
+        publication_mode=args.publication,
     )
 
     # Try labeled visualization if data is available
     # visualize_labeled_reconstructions(
-    #     config_path=config_path, output_dir="saved_plots", num_samples=6
+    #     config_path=config_path,
+    #     output_dir="saved_plots",
+    #     num_samples=args.num_samples,
+    #     max_points=args.max_points,
+    #     specific_indices=args.indices,
+    #     publication_mode=args.publication
     # )
 
     print("\nVisualization complete!")

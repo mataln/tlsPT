@@ -286,9 +286,10 @@ def main(config: DictConfig):
     else:
         callbacks = [best_checkpoint_callback, final_checkpoint_callback, lr_monitor]
 
-    if config.get("no_checkpoint", False):
-        logger.info("Not saving checkpoints")
-        callbacks = [cb for cb in callbacks if not isinstance(cb, ModelCheckpoint)]
+    # if config.get("no_checkpoint", False):
+    #     logger.info("Not saving checkpoints")
+    #     callbacks = [cb for cb in callbacks
+    #                 if not isinstance(cb, (ModelCheckpoint, SaveFinalCheckpoint))]
 
     # Extra custom callbacks from config
     # In train.py
@@ -419,6 +420,17 @@ def main(config: DictConfig):
                 logger.warning(f"Checkpoint not found: {ckpt_path}")
 
         logger.info("Test evaluation complete for all checkpoints")
+
+    # Clean up checkpoints if no_checkpoint is True
+    if config.get("no_checkpoint", False):
+        logger.info(
+            f"Removing checkpoint directory as no_checkpoint=True: {checkpoint_dir}"
+        )
+        import shutil
+
+        if os.path.exists(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
+            logger.info(f"Checkpoint directory removed: {checkpoint_dir}")
 
 
 if __name__ == "__main__":

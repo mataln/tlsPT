@@ -561,136 +561,35 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
     return fig
 
 
-def check_missing_runs(df_agg, df_all, filtered_runs, expected_runs=5):
-    """Check for configurations with fewer than expected runs and diagnose why"""
-    missing_configs = []
+def find_minimum_run_config(df_agg):
+    """Find the configuration with the minimum number of runs across all data"""
+    min_runs = df_agg["num_runs"].min()
+    min_config = df_agg[df_agg["num_runs"] == min_runs].iloc[0]
 
-    # Group by the parameters we care about
-    group_cols = ["freeze_type", "train_pct", "checkpoint", "arch", "uldata_pct"]
+    print("\n=== Configuration with Fewest Runs ===")
+    print(f"Minimum number of runs found: {min_runs}")
+    print(f"Configuration details:")
+    print(f"  Checkpoint: {min_config['checkpoint']}")
+    print(
+        f"  Freeze type: {min_config['freeze_type']} ({FREEZE_TYPES.get(min_config['freeze_type'], min_config['freeze_type'])})"
+    )
+    print(f"  Train percentage: {min_config['train_pct']*100:.0f}%")
+    print(f"  Architecture: {min_config['arch']}")
+    if pd.notna(min_config["uldata_pct"]):
+        print(f"  Unlabeled data: {min_config['uldata_pct']:.1f}%")
 
-    for _, row in df_agg.iterrows():
-        if row["num_runs"] < expected_runs:
-            config = {col: row[col] for col in group_cols}
-            config["num_runs"] = row["num_runs"]
-            config["expected_runs"] = expected_runs
-            config["missing_runs"] = expected_runs - row["num_runs"]
-            missing_configs.append(config)
-
-    if missing_configs:
-        print(f"\n=== WARNING: Configurations with fewer than {expected_runs} runs ===")
-        print(f"Total configurations with missing runs: {len(missing_configs)}")
-
-        # Sort by number of runs and other parameters
-        missing_configs.sort(
-            key=lambda x: (
-                x["num_runs"],
-                x["checkpoint"],
-                x["freeze_type"],
-                x["train_pct"],
-            )
+    # Check if there are other configurations with the same minimum
+    all_min_configs = df_agg[df_agg["num_runs"] == min_runs]
+    if len(all_min_configs) > 1:
+        print(
+            f"\nNote: {len(all_min_configs)} configurations have this minimum run count:"
         )
-
-        for config in missing_configs:
+        for idx, config in all_min_configs.iterrows():
             print(
-                f"\n  Configuration: {config['checkpoint']} - {config['freeze_type']} - "
-                f"{config['train_pct']*100:.0f}% data - "
-                f"{config['arch']} - {config['uldata_pct']}% unlabeled"
-            )
-            print(
-                f"    Found {config['num_runs']} runs, expected {config['expected_runs']}"
+                f"  - {config['checkpoint']} / {config['freeze_type']} / {config['train_pct']*100:.0f}% data"
             )
 
-            # Look for near-matches in the full dataset
-            print("    Checking for near-matches in all runs...")
-
-            # Check all runs for similar configurations
-            near_matches = []
-            for _, run in df_all.iterrows():
-                # Check each field
-                matches = {
-                    "checkpoint": run.get("checkpoint") == config["checkpoint"],
-                    "freeze_type": run.get("freeze_type") == config["freeze_type"],
-                    "train_pct": abs(run.get("train_pct", -999) - config["train_pct"])
-                    < 0.001,
-                    "arch": run.get("arch") == config["arch"],
-                    "uldata_pct": abs(
-                        run.get("uldata_pct", -999) - config["uldata_pct"]
-                    )
-                    < 0.1,
-                }
-
-                # If most fields match but not all, it's a near-match
-                match_count = sum(matches.values())
-                if match_count >= 4 and match_count < 5:
-                    mismatch_fields = [k for k, v in matches.items() if not v]
-                    near_matches.append(
-                        {
-                            "run_id": run["run_id"],
-                            "run_name": run["run_name"],
-                            "mismatch_fields": mismatch_fields,
-                            "values": {k: run.get(k) for k in mismatch_fields},
-                        }
-                    )
-
-            if near_matches:
-                print(f"    Found {len(near_matches)} near-matches:")
-                for nm in near_matches[:3]:  # Show first 3
-                    print(
-                        f"      Run {nm['run_id']}: mismatched on {nm['mismatch_fields']}"
-                    )
-                    print(f"        Values: {nm['values']}")
-
-            # Also specifically look for exact matches to understand the count
-            print("    Checking exact matches in aggregated data...")
-            exact_matches = df_all[
-                (df_all["checkpoint"] == config["checkpoint"])
-                & (df_all["freeze_type"] == config["freeze_type"])
-                & (abs(df_all["train_pct"] - config["train_pct"]) < 0.001)
-                & (df_all["arch"] == config["arch"])
-                & (abs(df_all["uldata_pct"] - config["uldata_pct"]) < 0.1)
-            ]
-
-            if len(exact_matches) > 0:
-                print(f"    Found {len(exact_matches)} exact matches:")
-                for idx, match in exact_matches.iterrows():
-                    print(f"      Run {match['run_id']} ({match['run_name']})")
-                    print(f"        run_index: {match.get('run_index', 'unknown')}")
-
-                # Check run indices to see which one is missing
-                run_indices = sorted(exact_matches["run_index"].tolist())
-                expected_indices = list(range(expected_runs))
-                missing_indices = [i for i in expected_indices if i not in run_indices]
-                if missing_indices:
-                    print(f"    Missing run indices: {missing_indices}")
-                else:
-                    print(
-                        f"    All run indices present but only {len(run_indices)} runs found"
-                    )
-            # Check filtered runs for this configuration
-            print("    Checking filtered runs...")
-            relevant_filtered = []
-            for fr in filtered_runs:
-                # Check if this filtered run might match our missing config
-                if (
-                    fr.get("checkpoint") == config["checkpoint"]
-                    or fr.get("arch") == config["arch"]
-                    or str(fr.get("uldata_pct")) == str(config["uldata_pct"])
-                ):
-                    relevant_filtered.append(fr)
-
-            if relevant_filtered:
-                print(
-                    f"    Found {len(relevant_filtered)} potentially related filtered runs:"
-                )
-                for rf in relevant_filtered[:3]:  # Show first 3
-                    print(f"      Run {rf['run_id']}: {rf['reason']}")
-                    print(f"        Checkpoint: {rf.get('checkpoint', 'unknown')}")
-            else:
-                print("    No related filtered runs found")
-    else:
-        print(f"\n=== All configurations have at least {expected_runs} runs ===")
-
-    return missing_configs
+    return min_config
 
 
 def main():
@@ -702,7 +601,7 @@ def main():
         return
 
     # Keep a copy of the full dataframe before aggregation for diagnostics
-    df_full = df.copy()
+    df.copy()
 
     # Aggregate duplicate runs
     df_agg = aggregate_runs(df)
@@ -714,6 +613,9 @@ def main():
     print(
         f"\nSaved raw data to {OUTPUT_DIR / 'saturation_data_all_checkpoints_with_std.csv'}"
     )
+
+    # Find and report the configuration with minimum runs
+    find_minimum_run_config(df_agg)
 
     # Sort checkpoints by architecture and unlabeled data percentage
     # Include scratch page at the beginning
@@ -835,9 +737,6 @@ def main():
                             print(
                                 f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}_mean']:.4f} ± {best_miou[f'miou_{ckpt}_std']:.4f} at {best_miou['train_pct']*100:.0f}% data ({best_miou['num_runs']} runs)"
                             )
-
-    # Check for missing runs
-    check_missing_runs(df_agg, df_full, filtered_runs, expected_runs=5)
 
 
 if __name__ == "__main__":
