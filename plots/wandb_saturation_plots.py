@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 import warnings
 from pathlib import Path
@@ -23,7 +24,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # Define metrics to plot
 METRICS = {
     "bal_acc": "Balanced Accuracy",
-    "miou": "Mean IoU",
+    "miou": "mIoU",
     "acc": "Accuracy",
     "loss": "Loss",
 }
@@ -41,6 +42,14 @@ ARCH_MAPPING = {
     "vits": "ViT-S",
     "vitb": "ViT-B",
     "vitl": "ViT-L",
+}
+
+# Color palette for freeze types
+FREEZE_COLORS = {
+    "full": "tab:blue",
+    "frozen": "tab:orange",
+    "scheduled": "tab:green",
+    "scratch": "gray",
 }
 
 
@@ -477,7 +486,7 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         label="From Scratch",
                         linewidth=2.5,
                         linestyle="-",
-                        color="tab:blue",
+                        color=FREEZE_COLORS["scratch"],
                         markersize=10,
                         capsize=5,
                         capthick=1.5,
@@ -505,7 +514,7 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         label="From Scratch",
                         linewidth=2.5,
                         linestyle="--",
-                        color="gray",
+                        color=FREEZE_COLORS["scratch"],
                         alpha=0.7,
                         markersize=10,
                         capsize=5,
@@ -548,6 +557,7 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
                         label=FREEZE_TYPES[freeze_type],
                         linewidth=2.5,
                         linestyle="-",
+                        color=FREEZE_COLORS[freeze_type],
                         markersize=10,
                         capsize=5,
                         capthick=1.5,
@@ -561,9 +571,9 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
             ax.grid(True, alpha=0.3)
             ax.set_xlim(0, 105)
 
-            # Only show legend on first plot
+            # Place legend inside the plot area (top left corner)
             if i == 0 and j == 0:
-                ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=11)
+                ax.legend(loc="upper left", fontsize=11, framealpha=0.9)
 
     # Create title with checkpoint info
     arch_name = ARCH_MAPPING.get(arch, arch.upper())
@@ -575,6 +585,106 @@ def create_checkpoint_comparison_grid(df, checkpoint_name, arch, uldata_pct):
     plt.suptitle(title, fontsize=16, fontweight="bold")
     plt.tight_layout()
 
+    return fig
+
+
+def create_publication_plot(df, metric, checkpoint_type="last"):
+    """Create a single publication-quality plot for one metric"""
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    metric_mean_col = f"{metric}_{checkpoint_type}_mean"
+    metric_std_col = f"{metric}_{checkpoint_type}_std"
+
+    # Plot scratch baseline
+    scratch_data = df[df["freeze_type"] == "scratch"].dropna(subset=[metric_mean_col])
+    if len(scratch_data) > 0:
+        scratch_data = scratch_data.sort_values("train_pct")
+
+        x_vals = scratch_data["train_pct"] * 100
+        y_vals = scratch_data[metric_mean_col]
+        y_err = scratch_data[metric_std_col].fillna(0)
+
+        ax.errorbar(
+            x_vals,
+            y_vals,
+            yerr=y_err,
+            marker="o",
+            label="From Scratch",
+            linewidth=2.5,
+            linestyle="--",
+            color=FREEZE_COLORS["scratch"],
+            alpha=0.7,
+            markersize=10,
+            capsize=5,
+            capthick=1.5,
+            elinewidth=1.5,
+        )
+
+    # Find checkpoint with 100% unlabeled data
+    checkpoints_100 = df[(df["uldata_pct"] == 100.0) & (df["checkpoint"] != "scratch")]
+
+    if len(checkpoints_100) > 0:
+        # Get the most common checkpoint (should be the same for all)
+        checkpoints_100["checkpoint"].iloc[0]
+        arch = checkpoints_100["arch"].iloc[0]
+
+        # Plot data for each freeze type
+        for freeze_type in ["full", "frozen", "scheduled"]:
+            if freeze_type not in FREEZE_TYPES:
+                continue
+
+            data = checkpoints_100[
+                checkpoints_100["freeze_type"] == freeze_type
+            ].dropna(subset=[metric_mean_col])
+            if len(data) == 0:
+                continue
+
+            data = data.sort_values("train_pct")
+
+            x_vals = data["train_pct"] * 100
+            y_vals = data[metric_mean_col]
+            y_err = data[metric_std_col].fillna(0)
+
+            ax.errorbar(
+                x_vals,
+                y_vals,
+                yerr=y_err,
+                marker="o",
+                label=FREEZE_TYPES[freeze_type],
+                linewidth=2.5,
+                linestyle="-",
+                color=FREEZE_COLORS[freeze_type],
+                markersize=10,
+                capsize=5,
+                capthick=1.5,
+                elinewidth=1.5,
+            )
+
+        # Formatting
+        ax.set_xlabel("Training Data %", fontsize=14)
+        ax.set_ylabel(METRICS[metric], fontsize=14)
+        arch_name = ARCH_MAPPING.get(arch, arch.upper())
+        ax.set_title(
+            f"{arch_name} - 100% Unlabeled Data ({checkpoint_type.capitalize()} Checkpoint)",
+            fontsize=16,
+            fontweight="bold",
+        )
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "No checkpoint with 100% unlabeled data found",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+        )
+
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, 105)
+    ax.legend(loc="best", fontsize=12, framealpha=0.9)
+
+    plt.tight_layout()
     return fig
 
 
@@ -609,7 +719,343 @@ def find_minimum_run_config(df_agg):
     return min_config
 
 
+def generate_latex_table(df_agg, checkpoint_info, output_path):
+    """Generate a LaTeX table showing results across all training data percentages for 100% unlabeled data"""
+
+    # Focus on last checkpoint and 100% unlabeled data
+    eval_ckpt = "last"
+
+    # Get unique training percentages
+    train_pcts = sorted(df_agg["train_pct"].unique())
+
+    # First, collect all data to find best values
+    data_dict = {}
+
+    for metric in ["bal_acc", "miou"]:
+        data_dict[metric] = {}
+
+        for train_pct in train_pcts:
+            data_dict[metric][train_pct] = {}
+
+            # Get scratch data
+            scratch_data = df_agg[
+                (df_agg["checkpoint"] == "scratch") & (df_agg["train_pct"] == train_pct)
+            ]
+            if len(scratch_data) > 0:
+                row = scratch_data.iloc[0]
+                mean_val = row[f"{metric}_{eval_ckpt}_mean"]
+                std_val = row[f"{metric}_{eval_ckpt}_std"]
+                if pd.notna(mean_val):
+                    data_dict[metric][train_pct]["Scratch"] = (mean_val, std_val)
+
+            # Get pretrained data
+            pretrained_100 = df_agg[
+                (df_agg["uldata_pct"] == 100.0)
+                & (df_agg["checkpoint"] != "scratch")
+                & (df_agg["train_pct"] == train_pct)
+            ]
+
+            for freeze_type, freeze_name in [
+                ("full", "Full"),
+                ("frozen", "Frozen"),
+                ("scheduled", "Scheduled"),
+            ]:
+                freeze_data = pretrained_100[
+                    pretrained_100["freeze_type"] == freeze_type
+                ]
+                if len(freeze_data) > 0:
+                    row = freeze_data.iloc[0]
+                    mean_val = row[f"{metric}_{eval_ckpt}_mean"]
+                    std_val = row[f"{metric}_{eval_ckpt}_std"]
+                    if pd.notna(mean_val):
+                        data_dict[metric][train_pct][freeze_name] = (mean_val, std_val)
+
+    # Find best values for each metric and training percentage
+    best_values = {}
+    for metric in ["bal_acc", "miou"]:
+        best_values[metric] = {}
+        for train_pct in train_pcts:
+            if train_pct in data_dict[metric]:
+                values = [v[0] for v in data_dict[metric][train_pct].values()]
+                if values:
+                    best_values[metric][train_pct] = max(values)
+
+    # Generate LaTeX table
+    latex_lines = []
+    latex_lines.append("% Requires \\usepackage{multirow, booktabs, graphicx}")
+    latex_lines.append("\\begin{table}[htbp]")
+    latex_lines.append(
+        "  \\caption{Performance metrics across different training data percentages using 100\\% unlabeled pretraining data (last checkpoint). Results show mean ± standard deviation. Best results per column are in bold.}"
+    )
+    latex_lines.append("  \\label{tab:saturation_results}")
+    latex_lines.append("  \\centering")
+    latex_lines.append("  \\resizebox{\\textwidth}{!}{%")
+
+    # Create column specification
+    col_spec = "ll" + "c" * len(train_pcts)
+    latex_lines.append(f"  \\begin{{tabular}}{{{col_spec}}}")
+    latex_lines.append("    \\toprule")
+
+    # Header row with training percentages
+    header = "    Metric & Method"
+    for train_pct in train_pcts:
+        header += f" & {int(train_pct * 100)}\\%"
+    header += " \\\\"
+    latex_lines.append(header)
+    latex_lines.append("    \\midrule")
+
+    # Add data for each metric
+    for metric, metric_name in [("bal_acc", "Bal. Acc"), ("miou", "mIoU")]:
+        # Process each strategy
+        for i, (strat_key, strat_name) in enumerate(
+            [
+                ("Scratch", "Scratch"),
+                ("Full", "Full"),
+                ("Frozen", "Frozen"),
+                ("Scheduled", "Scheduled"),
+            ]
+        ):
+            if i == 0:
+                row = f"    \\multirow{{4}}{{*}}{{{metric_name}}} & {strat_name}"
+            else:
+                row = f"     & {strat_name}"
+
+            for train_pct in train_pcts:
+                if (
+                    train_pct in data_dict[metric]
+                    and strat_key in data_dict[metric][train_pct]
+                ):
+                    mean_val, std_val = data_dict[metric][train_pct][strat_key]
+                    value_str = f"{mean_val:.3f} ± {std_val:.3f}"
+
+                    # Bold if this is the best value
+                    if (
+                        train_pct in best_values[metric]
+                        and mean_val == best_values[metric][train_pct]
+                    ):
+                        value_str = f"\\textbf{{{value_str}}}"
+
+                    row += f" & {value_str}"
+                else:
+                    row += " & --"
+            row += " \\\\"
+            latex_lines.append(row)
+
+        if metric != "miou":  # Add separator between metrics
+            latex_lines.append("    \\midrule")
+
+    latex_lines.append("    \\bottomrule")
+    latex_lines.append("  \\end{tabular}")
+    latex_lines.append("  }%")  # Close resizebox
+    latex_lines.append("\\end{table}")
+
+    # Write to file
+    with open(output_path, "w") as f:
+        f.write("\n".join(latex_lines))
+
+    print(f"\nSaved LaTeX table to {output_path}")
+
+    # Also create a comprehensive appendix version
+    appendix_path = output_path.parent / (output_path.stem + "_appendix_full.tex")
+    generate_appendix_latex_table(df_agg, checkpoint_info, appendix_path)
+
+
+def generate_appendix_latex_table(df_agg, checkpoint_info, output_path):
+    """Generate a comprehensive LaTeX table for appendix with all configurations"""
+
+    # Focus on last checkpoint
+    eval_ckpt = "last"
+
+    # Get unique training percentages
+    train_pcts = sorted(df_agg["train_pct"].unique())
+
+    latex_lines = []
+    latex_lines.append("% Requires \\usepackage{longtable, booktabs}")
+    latex_lines.append("\\begingroup")
+    latex_lines.append("\\scriptsize  % Use very small font")
+    latex_lines.append("\\setlength{\\tabcolsep}{3pt}  % Minimal column spacing")
+    latex_lines.append(
+        "\\begin{longtable}{@{}p{1cm} p{1.5cm} p{1.5cm} p{1.5cm} p{1.5cm} p{2.5cm} p{2.5cm}@{}}"
+    )
+    latex_lines.append(
+        "\\caption{Complete performance metrics for all training configurations. Results show mean ± standard deviation at the last checkpoint.} \\\\"
+    )
+    latex_lines.append("\\label{tab:saturation_results_full} \\\\")
+    latex_lines.append("\\toprule")
+    latex_lines.append(
+        "Train \\% & Checkpoint & Arch & Unlabeled \\% & Method & Bal. Acc & mIoU \\\\"
+    )
+    latex_lines.append("\\midrule")
+    latex_lines.append("\\endfirsthead")
+    latex_lines.append("\\midrule")
+    latex_lines.append("\\multicolumn{7}{r}{Continued on next page} \\\\")
+    latex_lines.append("\\endfoot")
+    latex_lines.append("\\bottomrule")
+    latex_lines.append("\\endlastfoot")
+
+    # Add data rows for each training percentage
+    for train_pct in train_pcts:
+        pct_str = f"{int(train_pct * 100)}"
+
+        # First add scratch for this percentage
+        scratch_data = df_agg[
+            (df_agg["checkpoint"] == "scratch") & (df_agg["train_pct"] == train_pct)
+        ]
+        if len(scratch_data) > 0:
+            row = scratch_data.iloc[0]
+            bal_acc_mean = row[f"bal_acc_{eval_ckpt}_mean"]
+            bal_acc_std = row[f"bal_acc_{eval_ckpt}_std"]
+            miou_mean = row[f"miou_{eval_ckpt}_mean"]
+            miou_std = row[f"miou_{eval_ckpt}_std"]
+
+            bal_acc_str = (
+                f"{bal_acc_mean:.3f} ± {bal_acc_std:.3f}"
+                if pd.notna(bal_acc_mean)
+                else "--"
+            )
+            miou_str = (
+                f"{miou_mean:.3f} ± {miou_std:.3f}" if pd.notna(miou_mean) else "--"
+            )
+
+            latex_lines.append(
+                f"{pct_str} & Scratch & -- & -- & Scratch & {bal_acc_str} & {miou_str} \\\\"
+            )
+
+        # Then add all pretrained configurations
+        pretrained_data = df_agg[
+            (df_agg["checkpoint"] != "scratch") & (df_agg["train_pct"] == train_pct)
+        ]
+
+        # Sort by architecture, unlabeled percentage, and freeze type
+        if len(pretrained_data) > 0:
+            pretrained_data = pretrained_data.sort_values(
+                ["arch", "uldata_pct", "freeze_type"]
+            )
+
+            for _, row in pretrained_data.iterrows():
+                checkpoint_name = row["checkpoint"]
+                arch = ARCH_MAPPING.get(row["arch"], row["arch"].upper())
+                uldata = (
+                    f"{row['uldata_pct']:.0f}" if pd.notna(row["uldata_pct"]) else "--"
+                )
+                freeze_type = row["freeze_type"]
+                freeze_name = {
+                    "full": "Full",
+                    "frozen": "Frozen",
+                    "scheduled": "Scheduled",
+                }.get(freeze_type, freeze_type)
+
+                bal_acc_mean = row[f"bal_acc_{eval_ckpt}_mean"]
+                bal_acc_std = row[f"bal_acc_{eval_ckpt}_std"]
+                miou_mean = row[f"miou_{eval_ckpt}_mean"]
+                miou_std = row[f"miou_{eval_ckpt}_std"]
+
+                bal_acc_str = (
+                    f"{bal_acc_mean:.3f} ± {bal_acc_std:.3f}"
+                    if pd.notna(bal_acc_mean)
+                    else "--"
+                )
+                miou_str = (
+                    f"{miou_mean:.3f} ± {miou_std:.3f}" if pd.notna(miou_mean) else "--"
+                )
+
+                # Only show train % on first row of each group
+                show_pct = pct_str if pretrained_data.index[0] == _ else ""
+
+                latex_lines.append(
+                    f"{show_pct} & {checkpoint_name} & {arch} & {uldata} & {freeze_name} & {bal_acc_str} & {miou_str} \\\\"
+                )
+
+        if (
+            train_pct != train_pcts[-1]
+        ):  # Add separator between percentages except for last
+            latex_lines.append("\\midrule")
+
+    latex_lines.append("\\end{longtable}")
+    latex_lines.append("\\endgroup")
+
+    # Write to file
+    with open(output_path, "w") as f:
+        f.write("\n".join(latex_lines))
+
+    print(f"Saved comprehensive appendix table to {output_path}")
+
+
+def generate_clean_latex_table(table_data, train_pcts, output_path):
+    """Generate a cleaner LaTeX table without standard deviations"""
+
+    latex_lines = []
+    latex_lines.append("\\begin{table}[htbp]")
+    latex_lines.append(
+        "  \\caption{Performance metrics across different training data percentages using 100\\% unlabeled pretraining data (last checkpoint).}"
+    )
+    latex_lines.append("  \\label{tab:saturation_results_clean}")
+    latex_lines.append("  \\centering")
+    latex_lines.append("  \\begin{tabular}{ccccccccc}")
+    latex_lines.append("    \\toprule")
+    latex_lines.append(
+        "    & \\multicolumn{4}{c}{Balanced Accuracy} & \\multicolumn{4}{c}{Mean IoU} \\\\"
+    )
+    latex_lines.append("    \\cmidrule(lr){2-5} \\cmidrule(lr){6-9}")
+    latex_lines.append(
+        "    Train \\% & Scratch & Full & Frozen & Scheduled & Scratch & Full & Frozen & Scheduled \\\\"
+    )
+    latex_lines.append("    \\midrule")
+
+    # Add data rows
+    for train_pct in train_pcts:
+        if train_pct not in table_data:
+            continue
+
+        row_data = table_data[train_pct]
+        pct_str = f"{int(train_pct * 100)}"
+
+        # Extract just the mean values
+        def extract_mean(value_str):
+            if value_str == "--":
+                return "--"
+            return value_str.split(" ±")[0]
+
+        scratch_bal = extract_mean(row_data.get("Scratch_bal_acc", "--"))
+        full_bal = extract_mean(row_data.get("Full_bal_acc", "--"))
+        frozen_bal = extract_mean(row_data.get("Frozen_bal_acc", "--"))
+        scheduled_bal = extract_mean(row_data.get("Scheduled_bal_acc", "--"))
+
+        scratch_miou = extract_mean(row_data.get("Scratch_miou", "--"))
+        full_miou = extract_mean(row_data.get("Full_miou", "--"))
+        frozen_miou = extract_mean(row_data.get("Frozen_miou", "--"))
+        scheduled_miou = extract_mean(row_data.get("Scheduled_miou", "--"))
+
+        latex_lines.append(
+            f"    {pct_str} & {scratch_bal} & {full_bal} & {frozen_bal} & {scheduled_bal} & "
+            f"{scratch_miou} & {full_miou} & {frozen_miou} & {scheduled_miou} \\\\"
+        )
+
+    latex_lines.append("    \\bottomrule")
+    latex_lines.append("  \\end{tabular}")
+    latex_lines.append("\\end{table}")
+
+    # Write to file
+    with open(output_path, "w") as f:
+        f.write("\n".join(latex_lines))
+
+    print(f"Saved clean LaTeX table (no std) to {output_path}")
+
+
+def generate_simplified_latex_table(results_df, output_path):
+    """This function is no longer needed but kept for compatibility"""
+
+
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Generate W&B saturation plots")
+    parser.add_argument(
+        "--publication",
+        action="store_true",
+        help="Generate publication-ready plots (last checkpoint only, 100%% unlabeled data)",
+    )
+    args = parser.parse_args()
+
     # Set up matplotlib for publication quality
     setup_matplotlib()
 
@@ -656,25 +1102,38 @@ def main():
     )
     sorted_checkpoints.extend(pretrained_checkpoints)
 
-    # Create plots for each checkpoint
-    from matplotlib.backends.backend_pdf import PdfPages
+    if args.publication:
+        # Publication mode: create separate plots for each metric
+        print("\n=== Generating publication plots ===")
+        print("Using last checkpoint and 100% unlabeled data only")
 
-    with PdfPages(
-        OUTPUT_DIR / "saturation_plots_all_checkpoints_with_errorbars.pdf"
-    ) as pdf:
-        for checkpoint_name, info in sorted_checkpoints:
-            print(f"\nCreating plots for {checkpoint_name}")
-
-            # Create comparison grid for this checkpoint
-            fig = create_checkpoint_comparison_grid(
-                df_agg, checkpoint_name, info["arch"], info["uldata_pct"]
-            )
-            pdf.savefig(fig)
+        for metric in ["bal_acc", "miou"]:
+            fig = create_publication_plot(df_agg, metric, checkpoint_type="last")
+            filename = OUTPUT_DIR / f"publication_{metric}_last_100pct.pdf"
+            fig.savefig(filename, format="pdf", bbox_inches="tight")
             plt.close(fig)
+            print(f"Saved {metric} plot to {filename}")
+    else:
+        # Regular mode: create comprehensive plots
+        # Create plots for each checkpoint
+        from matplotlib.backends.backend_pdf import PdfPages
 
-    print(
-        f"\nSaved plots to {OUTPUT_DIR / 'saturation_plots_all_checkpoints_with_errorbars.pdf'}"
-    )
+        with PdfPages(
+            OUTPUT_DIR / "saturation_plots_all_checkpoints_with_errorbars.pdf"
+        ) as pdf:
+            for checkpoint_name, info in sorted_checkpoints:
+                print(f"\nCreating plots for {checkpoint_name}")
+
+                # Create comparison grid for this checkpoint
+                fig = create_checkpoint_comparison_grid(
+                    df_agg, checkpoint_name, info["arch"], info["uldata_pct"]
+                )
+                pdf.savefig(fig)
+                plt.close(fig)
+
+        print(
+            f"\nSaved plots to {OUTPUT_DIR / 'saturation_plots_all_checkpoints_with_errorbars.pdf'}"
+        )
 
     # Print summary statistics
     print("\n=== Summary Statistics ===")
@@ -757,6 +1216,10 @@ def main():
                             print(
                                 f"    Best mIoU ({ckpt}): {best_miou[f'miou_{ckpt}_mean']:.4f} ± {best_miou[f'miou_{ckpt}_std']:.4f} at {best_miou['train_pct']*100:.0f}% data ({best_miou['num_runs']} runs)"
                             )
+
+    # Generate LaTeX table with results
+    latex_output_path = OUTPUT_DIR / "saturation_results_table.tex"
+    generate_latex_table(df_agg, checkpoint_info, latex_output_path)
 
 
 if __name__ == "__main__":

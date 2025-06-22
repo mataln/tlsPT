@@ -22,10 +22,16 @@ PROJECT = "mja2106/FINAL_NOWEIGHT_TUNE_TLSPT_2025"
 OUTPUT_DIR = Path("saved_plots")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Define metrics to plot
+# Define metrics to plot with colorblind-friendly colormaps
 METRICS = {
     "bal_acc": "Balanced Accuracy",
     "miou": "Mean IoU",
+}
+
+# Colorblind-friendly colormaps for each metric
+METRIC_COLORMAPS = {
+    "bal_acc": "viridis",
+    "miou": "plasma",
 }
 
 # Fixed parameters - only full finetune and last checkpoint
@@ -267,27 +273,51 @@ def create_contour_plot(df, metric, architecture):
     pretraining_pct_plot = np.where(pretraining_pct == 0, 0.5, pretraining_pct)
     downstream_pct_plot = np.where(downstream_pct == 0, 0.5, downstream_pct)
 
+    # Find the actual data range to limit axes exactly
+    min_pretrain = min(pretraining_pct_plot)
+    max_pretrain = max(pretraining_pct_plot)
+    min_downstream = min(downstream_pct_plot)
+    max_downstream = max(downstream_pct_plot)
+
     # Create a denser grid for smoother interpolation
-    pretrain_grid = np.logspace(np.log10(0.5), np.log10(100), 50)
-    downstream_grid = np.logspace(np.log10(0.5), np.log10(100), 50)
+    pretrain_grid = np.logspace(np.log10(min_pretrain), np.log10(max_pretrain), 50)
+    downstream_grid = np.logspace(
+        np.log10(min_downstream), np.log10(max_downstream), 50
+    )
 
     # Create meshgrid
     X, Y = np.meshgrid(pretrain_grid, downstream_grid)
 
-    # Interpolate the data
+    # Interpolate the data - use linear to avoid islands
     Z = griddata(
         (pretraining_pct_plot, downstream_pct_plot),
         metric_values,
         (X, Y),
-        method="cubic",
+        method="linear",
         fill_value=np.nan,
     )
 
-    # Create contour plot
+    # Apply more aggressive smoothing
+
+    # Only smooth where we have data (not NaN)
+    ~np.isnan(Z)
+    Z_smooth = Z.copy()
+    # Z_smooth[mask] = gaussian_filter(Z[mask], sigma=0.1)  # Light smoothing
+
+    # Get the colormap for this metric
+    cmap = METRIC_COLORMAPS.get(metric, "viridis")
+
+    # Create contour plot using smoothed data
     contour_levels = 20
-    contourf = ax.contourf(X, Y, Z, levels=contour_levels, cmap="viridis", alpha=0.8)
+    contourf = ax.contourf(X, Y, Z_smooth, levels=contour_levels, cmap=cmap, alpha=0.8)
     contour = ax.contour(
-        X, Y, Z, levels=contour_levels, colors="black", alpha=0.3, linewidths=0.5
+        X,
+        Y,
+        Z_smooth,
+        levels=contour_levels,
+        colors="black",
+        alpha=0.5,
+        linewidths=1.0,  # Made bolder
     )
 
     # Add contour labels
@@ -298,7 +328,7 @@ def create_contour_plot(df, metric, architecture):
     cbar.set_label(METRICS[metric], fontsize=14)
     cbar.ax.tick_params(labelsize=12)
 
-    # Add data points
+    # Add all data points with same style
     scatter = ax.scatter(
         pretraining_pct_plot,
         downstream_pct_plot,
@@ -306,62 +336,44 @@ def create_contour_plot(df, metric, architecture):
         edgecolors="black",
         linewidths=0.5,
         s=100,
-        cmap="viridis",
+        cmap=cmap,
         zorder=10,
         marker="o",
     )
-
-    # Highlight scratch points (0% pretraining)
-    scratch_mask = pretraining_pct == 0
-    if np.any(scratch_mask):
-        ax.scatter(
-            pretraining_pct_plot[scratch_mask],
-            downstream_pct_plot[scratch_mask],
-            c="red",
-            edgecolors="black",
-            linewidths=2,
-            s=150,
-            zorder=11,
-            marker="s",
-            label="From Scratch",
-        )
 
     # Set log scale
     ax.set_xscale("log")
     ax.set_yscale("log")
 
-    # Set axis limits
-    ax.set_xlim(0.3, 150)
-    ax.set_ylim(0.3, 150)
+    # Set axis limits to data range
+    ax.set_xlim(min_pretrain, max_pretrain)
+    ax.set_ylim(min_downstream, max_downstream)
 
-    # Custom tick labels
-    xticks = [0.5, 1, 5, 10, 20, 50, 100]
-    xticklabels = ["0", "1", "5", "10", "20", "50", "100"]
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(xticklabels)
+    # Custom tick labels based on actual data range
+    # For x-axis
+    x_tick_values = [0.5, 1, 2, 5, 10, 20, 50, 100]
+    x_ticks = [t for t in x_tick_values if min_pretrain <= t <= max_pretrain]
+    x_labels = ["0" if t == 0.5 else str(int(t)) for t in x_ticks]
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_labels)
 
-    yticks = [0.5, 1, 2, 5, 10, 20, 50, 100]
-    yticklabels = ["0", "1", "2", "5", "10", "20", "50", "100"]
-    ax.set_yticks(yticks)
-    ax.set_yticklabels(yticklabels)
+    # For y-axis
+    y_tick_values = [0.5, 1, 2, 5, 10, 20, 50, 100]
+    y_ticks = [t for t in y_tick_values if min_downstream <= t <= max_downstream]
+    y_labels = ["0" if t == 0.5 else str(int(t)) for t in y_ticks]
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(y_labels)
 
     # Labels
     ax.set_xlabel("Pretraining Data %", fontsize=14)
     ax.set_ylabel("Downstream Training Data %", fontsize=14)
 
-    # Title
-    arch_name = {"vits": "ViT-S", "vitb": "ViT-B", "vitl": "ViT-L"}.get(
-        architecture, architecture.upper()
-    )
-    title = f"{METRICS[metric]} - Full Finetune (Last Checkpoint) - {arch_name}"
+    # Simplified title - only strategy and metric
+    title = f"{METRICS[metric]} - Full Finetune"
     ax.set_title(title, fontsize=16, fontweight="bold")
 
     # Add grid
     ax.grid(True, alpha=0.3, which="both")
-
-    # Add legend if we have scratch points
-    if np.any(scratch_mask):
-        ax.legend(loc="upper left")
 
     # Print value ranges for debugging
     print(
@@ -395,8 +407,12 @@ def main():
     # Create plots
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(OUTPUT_DIR / "contour_plots_full_finetune_last_averaged.pdf") as pdf:
-        for metric in METRICS:
+    for metric in METRICS:
+        # Create separate PDF for each metric
+        pdf_filename = (
+            OUTPUT_DIR / f"contour_plots_{metric}_full_finetune_last_averaged.pdf"
+        )
+        with PdfPages(pdf_filename) as pdf:
             # Create plots per architecture only
             for arch in architectures:
                 print(f"\nCreating contour plot for {metric} - {arch}")
@@ -405,9 +421,7 @@ def main():
                     pdf.savefig(fig)
                     plt.close(fig)
 
-    print(
-        f"\nSaved contour plots to {OUTPUT_DIR / 'contour_plots_full_finetune_last_averaged.pdf'}"
-    )
+        print(f"\nSaved {metric} contour plots to {pdf_filename}")
 
     # Save summary data
     summary_df = df_agg[

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 import warnings
 from pathlib import Path
@@ -36,6 +37,14 @@ FREEZE_TYPES = {
     "frozen": "Frozen Encoder",
     "scratch": "From Scratch",
     "scheduled": "Scheduled Unfreeze",
+}
+
+# Color scheme for freeze types - using matplotlib's default shades
+FREEZE_COLORS = {
+    "scratch": "gray",  # matplotlib's default gray
+    "full": "tab:blue",  # matplotlib's default blue
+    "frozen": "tab:orange",  # matplotlib's default orange
+    "scheduled": "tab:green",  # matplotlib's default green
 }
 
 # Architecture mapping
@@ -195,28 +204,117 @@ def aggregate_runs(df):
     return df_agg
 
 
-def compute_efficient_frontier(flops, metric_values):
+def compute_efficient_frontier_proper(freeze_data_dict, metric_col):
     """
-    Compute the efficient frontier for a set of points.
-    Returns indices of points on the frontier.
+    Compute the efficient frontier by finding where curves intersect and which
+    segments dominate.
+
+    Args:
+        freeze_data_dict: Dictionary mapping freeze_type to dataframe with 'train_flops' and metric_col
+        metric_col: Name of the metric column
+
+    Returns:
+        frontier_flops, frontier_metrics: Arrays of points on the frontier
     """
-    # Create array of indices and sort by flops
-    points = np.column_stack([flops, metric_values])
-    indices = np.arange(len(flops))
-    sorted_indices = indices[np.argsort(flops)]
+    # Build list of all segments from all curves
+    segments = []
 
-    frontier_indices = []
-    max_metric = -np.inf
+    for freeze_type, data in freeze_data_dict.items():
+        if len(data) < 2:  # Need at least 2 points for a segment
+            continue
 
-    for idx in sorted_indices:
-        if points[idx, 1] > max_metric:
-            frontier_indices.append(idx)
-            max_metric = points[idx, 1]
+        # Sort by FLOPs
+        sorted_data = data.sort_values("train_flops")
+        x = sorted_data["train_flops"].values
+        y = sorted_data[metric_col].values
 
-    return np.array(frontier_indices)
+        # Add each segment
+        for i in range(len(x) - 1):
+            segments.append(
+                {
+                    "x1": x[i],
+                    "y1": y[i],
+                    "x2": x[i + 1],
+                    "y2": y[i + 1],
+                    "freeze_type": freeze_type,
+                }
+            )
+
+    if len(segments) == 0:
+        return np.array([]), np.array([])
+
+    # Find all x-coordinates where we need to check (segment endpoints and intersections)
+    x_coords = set()
+
+    # Add all segment endpoints
+    for seg in segments:
+        x_coords.add(seg["x1"])
+        x_coords.add(seg["x2"])
+
+    # Find intersection points
+    for i, seg1 in enumerate(segments):
+        for j, seg2 in enumerate(segments[i + 1 :], i + 1):
+            # Check if x-ranges overlap
+            x_min = max(seg1["x1"], seg2["x1"])
+            x_max = min(seg1["x2"], seg2["x2"])
+
+            if x_min < x_max:  # Segments might intersect
+                # Calculate intersection
+                # Line 1: y = m1*x + b1
+                # Line 2: y = m2*x + b2
+                dx1 = seg1["x2"] - seg1["x1"]
+                dy1 = seg1["y2"] - seg1["y1"]
+                dx2 = seg2["x2"] - seg2["x1"]
+                dy2 = seg2["y2"] - seg2["y1"]
+
+                if dx1 != 0 and dx2 != 0:
+                    m1 = dy1 / dx1
+                    m2 = dy2 / dx2
+                    b1 = seg1["y1"] - m1 * seg1["x1"]
+                    b2 = seg2["y1"] - m2 * seg2["x1"]
+
+                    if abs(m1 - m2) > 1e-10:  # Not parallel
+                        x_int = (b2 - b1) / (m1 - m2)
+                        if x_min <= x_int <= x_max:
+                            x_coords.add(x_int)
+
+    # Sort x-coordinates
+    x_sorted = sorted(x_coords)
+
+    # For each x-coordinate, find which segment gives maximum y
+    frontier_points = []
+
+    for x in x_sorted:
+        max_y = -np.inf
+
+        # Check all segments that contain this x
+        for seg in segments:
+            if seg["x1"] <= x <= seg["x2"]:
+                # Interpolate y at this x
+                if seg["x2"] != seg["x1"]:
+                    t = (x - seg["x1"]) / (seg["x2"] - seg["x1"])
+                    y = seg["y1"] + t * (seg["y2"] - seg["y1"])
+                else:
+                    y = seg["y1"]
+
+                if y > max_y:
+                    max_y = y
+
+        if max_y > -np.inf:
+            # Only add if it improves the frontier
+            if len(frontier_points) == 0 or max_y > frontier_points[-1][1]:
+                frontier_points.append((x, max_y))
+
+    if len(frontier_points) == 0:
+        return np.array([]), np.array([])
+
+    frontier_x = np.array([p[0] for p in frontier_points])
+    frontier_y = np.array([p[1] for p in frontier_points])
+
+    return frontier_x, frontier_y
 
 
-def create_pareto_plot(df, metric, architecture):
+def create_pareto_plot(df, metric, architecture, publication=False):
     """Create a pareto plot with training FLOPs on x-axis and efficient frontier"""
 
     # Filter for specific architecture
@@ -234,20 +332,19 @@ def create_pareto_plot(df, metric, architecture):
         print(f"No data for {metric} - {architecture}")
         return None
 
-    # Create figure
-    fig, ax = plt.subplots(figsize=(12, 8))
+    # Create figure with narrower aspect ratio for publication
+    figsize = (6, 8) if publication else (12, 8)
+    fig, ax = plt.subplots(figsize=figsize)
 
-    # Collect all points for efficient frontier calculation
-    all_flops = []
-    all_metrics = []
-    all_labels = []
+    # Collect data by freeze type for frontier calculation
+    freeze_data_dict = {}
 
     # Plot each freeze type
     for freeze_type in [
         "scratch",
+        "full",
         "frozen",
         "scheduled",
-        "full",
     ]:  # Order matters for legend
         if freeze_type not in FREEZE_TYPES:
             continue
@@ -259,12 +356,13 @@ def create_pareto_plot(df, metric, architecture):
         # Sort by FLOPs
         data = data.sort_values("train_flops")
 
-        # Collect points for frontier
-        all_flops.extend(data["train_flops"].values)
-        all_metrics.extend(data[metric_col].values)
-        all_labels.extend([freeze_type] * len(data))
+        # Store data for frontier calculation
+        freeze_data_dict[freeze_type] = data
 
-        # Plot line
+        # Get color for this freeze type
+        color = FREEZE_COLORS.get(freeze_type, "black")
+
+        # Plot each freeze type
         line = ax.plot(
             data["train_flops"],
             data[metric_col],
@@ -273,47 +371,47 @@ def create_pareto_plot(df, metric, architecture):
             linewidth=2.5,
             markersize=10,
             alpha=0.8,
-        )[
-            0
-        ]  # Get the line object for color
+            color=color,
+            markerfacecolor=color,
+            markeredgecolor=color,
+        )[0]
 
-        # Add text labels with training data percentage
-        for i, (_, row) in enumerate(data.iterrows()):
-            train_pct_label = f"{row['train_pct']*100:.0f}%"
+        # Add text labels with training data percentage (only for scheduled and scratch)
+        if freeze_type in ["scheduled", "scratch"]:
+            for i, (_, row) in enumerate(data.iterrows()):
+                train_pct_label = f"{row['train_pct']*100:.0f}%"
 
-            # Offset text slightly to avoid overlap with point
-            ax.annotate(
-                train_pct_label,
-                xy=(row["train_flops"], row[metric_col]),
-                xytext=(10, 5),  # Offset in points
-                textcoords="offset points",
-                fontsize=12,
-                color=line.get_color(),  # Match line color
-                weight="bold",
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="white",
-                    edgecolor=line.get_color(),
-                    alpha=0.8,
-                ),
-            )
+                # Different offsets for different freeze types
+                if freeze_type == "scheduled":
+                    offset = (10, -15)  # bottom right
+                elif freeze_type == "scratch":
+                    offset = (-10, 10)  # top left
+                else:
+                    offset = (10, 5)  # default
 
-    # Compute and plot efficient frontier
-    if len(all_flops) > 0:
-        all_flops = np.array(all_flops)
-        all_metrics = np.array(all_metrics)
+                # Offset text to avoid overlap with point
+                ax.annotate(
+                    train_pct_label,
+                    xy=(row["train_flops"], row[metric_col]),
+                    xytext=offset,
+                    textcoords="offset points",
+                    fontsize=12,
+                    color=color,
+                    weight="bold",
+                    ha="left" if offset[0] > 0 else "right",
+                    va="bottom" if offset[1] > 0 else "top",
+                )
 
-        frontier_indices = compute_efficient_frontier(all_flops, all_metrics)
+    # Compute and plot efficient frontier using proper method
+    frontier_flops, frontier_metrics = compute_efficient_frontier_proper(
+        freeze_data_dict, metric_col
+    )
 
-        # Sort frontier points by flops for smooth line
-        frontier_flops = all_flops[frontier_indices]
-        frontier_metrics = all_metrics[frontier_indices]
-        sort_idx = np.argsort(frontier_flops)
-
+    if len(frontier_flops) > 0:
         # Plot efficient frontier
         ax.plot(
-            frontier_flops[sort_idx],
-            frontier_metrics[sort_idx],
+            frontier_flops,
+            frontier_metrics,
             "k--",
             linewidth=3,
             label="Efficient Frontier",
@@ -321,30 +419,16 @@ def create_pareto_plot(df, metric, architecture):
             zorder=10,
         )
 
-        # Highlight frontier points
-        ax.scatter(
-            frontier_flops,
-            frontier_metrics,
-            s=200,
-            facecolors="none",
-            edgecolors="black",
-            linewidth=3,
-            zorder=11,
-            alpha=0.8,
-        )
-
     # Formatting
-    ax.set_xlabel("Training FLOPs (log scale)", fontsize=14)
+    ax.set_xlabel("Training FLOPs", fontsize=14)
     ax.set_ylabel(METRICS[metric], fontsize=14)
 
     # Set log scale for x-axis
     ax.set_xscale("log")
 
     # Title
-    arch_name = ARCH_MAPPING.get(architecture, architecture.upper())
     ax.set_title(
-        f"{METRICS[metric]} vs Training FLOPs - {arch_name}\n"
-        f"(100% Unlabeled Pretraining Data, {CHECKPOINT.capitalize()} Checkpoint)",
+        f"{METRICS[metric]} vs Training FLOPs - Full Finetune",
         fontsize=16,
         fontweight="bold",
     )
@@ -352,8 +436,8 @@ def create_pareto_plot(df, metric, architecture):
     # Grid
     ax.grid(True, alpha=0.3, which="both")
 
-    # Legend
-    ax.legend(loc="best", frameon=True, fancybox=True, shadow=True)
+    # Legend - no shadow
+    ax.legend(loc="best", frameon=True, fancybox=True, shadow=False)
 
     # Add minor gridlines
     ax.grid(True, which="minor", alpha=0.1)
@@ -365,6 +449,15 @@ def create_pareto_plot(df, metric, architecture):
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Create Pareto plots from W&B runs")
+    parser.add_argument(
+        "--publication",
+        action="store_true",
+        help="Create separate plots with narrower aspect ratio for publication",
+    )
+    args = parser.parse_args()
+
     # Set up matplotlib for publication quality
     setup_matplotlib()
 
@@ -404,19 +497,33 @@ def main():
             )
 
     # Create plots
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    with PdfPages(OUTPUT_DIR / "pareto_plots_averaged.pdf") as pdf:
+    if args.publication:
+        # Create separate plots for publication
         for metric in METRICS:
-            # Individual plots for each architecture
             for arch in architectures:
                 print(f"\nCreating pareto plot for {metric} - {arch}")
-                fig = create_pareto_plot(df_agg, metric, arch)
+                fig = create_pareto_plot(df_agg, metric, arch, publication=True)
                 if fig:
-                    pdf.savefig(fig)
+                    # Save as individual file
+                    filename = f"pareto_{metric}_{arch}.pdf"
+                    fig.savefig(OUTPUT_DIR / filename, bbox_inches="tight", dpi=300)
+                    print(f"Saved plot to {OUTPUT_DIR / filename}")
                     plt.close(fig)
+    else:
+        # Original behavior - combine all plots in one PDF
+        from matplotlib.backends.backend_pdf import PdfPages
 
-    print(f"\nSaved plots to {OUTPUT_DIR / 'pareto_plots_averaged.pdf'}")
+        with PdfPages(OUTPUT_DIR / "pareto_plots_averaged.pdf") as pdf:
+            for metric in METRICS:
+                # Individual plots for each architecture
+                for arch in architectures:
+                    print(f"\nCreating pareto plot for {metric} - {arch}")
+                    fig = create_pareto_plot(df_agg, metric, arch, publication=False)
+                    if fig:
+                        pdf.savefig(fig)
+                        plt.close(fig)
+
+        print(f"\nSaved plots to {OUTPUT_DIR / 'pareto_plots_averaged.pdf'}")
 
 
 if __name__ == "__main__":
